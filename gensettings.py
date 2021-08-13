@@ -85,6 +85,17 @@ gensettingstf = [{
 	"step": 1,
 	"default": 1,
     "tooltip": "Whether the prompt should be sent in the context of every action."
+	},
+	{
+	"uitype": "toggle",
+	"unit": "bool",
+	"label": "Adventure Mode",
+	"id": "setadventure", 
+	"min": 0,
+	"max": 1,
+	"step": 1,
+	"default": 0,
+    "tooltip": "TODO: Add Adventure help text (in gensettings.py, please change BOTH occurrences of this string)"
 	}]
 
 gensettingsik =[{
@@ -141,6 +152,17 @@ gensettingsik =[{
 	"step": 1,
 	"default": 1,
     "tooltip": "Whether the prompt should be sent in the context of every action."
+	},
+	{
+	"uitype": "toggle",
+	"unit": "bool",
+	"label": "Adventure Mode",
+	"id": "setadventure", 
+	"min": 0,
+	"max": 1,
+	"step": 1,
+	"default": 0,
+    "tooltip": "TODO: Add Adventure help text (in gensettings.py, please change BOTH occurrences of this string)"
 	}]
 
 formatcontrols = [{

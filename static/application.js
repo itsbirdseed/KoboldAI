@@ -17,6 +17,8 @@ var button_importwi;
 var button_impaidg;
 var button_settings;
 var button_format;
+var button_mode;
+var button_mode_label;
 var button_send;
 var button_actedit;
 var button_actmem;
@@ -58,6 +60,8 @@ var ns_close;
 var seqselmenu;
 var seqselcontents;
 
+var memorymode = false;
+
 // Key states
 var shift_down   = false;
 var do_clear_ent = false;
@@ -65,6 +69,10 @@ var do_clear_ent = false;
 // Display vars
 var allowtoggle = false;
 var formatcount = 0;
+
+// Adventure
+var action_mode = 1;  // 0: story, 1: action
+var adventure = false;
 
 //=================================================================//
 //  METHODS
@@ -114,6 +122,9 @@ function addSetting(ob) {
 		$("#"+ob.id).on("change", function () {
 			if(allowtoggle) {
 				socket.send({'cmd': $(this).attr('id'), 'data': $(this).prop('checked')});
+			}
+			if(ob.id == "setadventure"){
+				setadventure($(this).prop('checked'));
 			}
 		});
 	}
@@ -340,6 +351,8 @@ function editModeSelect(n) {
 }
 
 function enterMemoryMode() {
+	memorymode = true;
+	setmodevisibility(false);
 	showMessage("Edit the memory to be sent with each request to the AI.");
 	button_actmem.html("Cancel");
 	hide([button_actback, button_actretry, button_actedit, button_delete, button_actwi]);
@@ -348,6 +361,8 @@ function enterMemoryMode() {
 }
 
 function exitMemoryMode() {
+	memorymode = false;
+	setmodevisibility(adventure);
 	hideMessage();
 	button_actmem.html("Memory");
 	show([button_actback, button_actretry, button_actedit, button_actwi]);
@@ -386,10 +401,20 @@ function returnWiList(ar) {
 
 function dosubmit() {
 	var txt = input_text.val();
-	socket.send({'cmd': 'submit', 'data': txt});
+	socket.send({'cmd': 'submit', 'actionmode': action_mode, 'data': txt});
 	input_text.val("");
 	hideMessage();
 	hidegenseqs();
+}
+
+function changemode() {
+	action_mode += 1;
+	action_mode %= 2;  // Total number of action modes (Story and Action)
+
+	switch (action_mode) {
+		case 0: button_mode_label.html("Story"); break;
+		case 1: button_mode_label.html("Action"); break;
+	}
 }
 
 function newTextHighlight(ref) {
@@ -518,6 +543,23 @@ function hidegenseqs() {
 	});
 }
 
+function setmodevisibility(state) {
+	if(state){  // Enabling
+		show([button_mode]);
+		$("#inputrow").addClass("show_mode");
+	} else{  // Disabling
+		hide([button_mode]);
+		$("#inputrow").removeClass("show_mode");
+	}
+}
+
+function setadventure(state) {
+	adventure = state;
+	if(!memorymode){
+		setmodevisibility(state);
+	}
+}
+
 //=================================================================//
 //  READY/RUNTIME
 //=================================================================//
@@ -537,6 +579,8 @@ $(document).ready(function(){
 	button_impaidg    = $("#btn_impaidg");
 	button_settings   = $('#btn_settings');
 	button_format     = $('#btn_format');
+	button_mode       = $('#btnmode')
+	button_mode_label = $('#btnmode_label')
 	button_send       = $('#btnsend');
 	button_actedit    = $('#btn_actedit');
 	button_actmem     = $('#btn_actmem');
@@ -775,6 +819,11 @@ $(document).ready(function(){
 		} else if(msg.cmd == "updateuseprompt") {
 			// Update toggle state
 			$("#setuseprompt").prop('checked', msg.data).change();
+		} else if(msg.cmd == "updateadventure") {
+			// Update toggle state
+			$("#setadventure").prop('checked', msg.data).change();
+			// Update adventure state
+			setadventure(msg.data);
 		}
     });
 	
@@ -787,6 +836,10 @@ $(document).ready(function(){
 	// Bind actions to UI buttons
 	button_send.on("click", function(ev) {
 		dosubmit();
+	});
+
+	button_mode.on("click", function(ev) {
+		changemode();
 	});
 	
 	button_actretry.on("click", function(ev) {
