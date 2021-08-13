@@ -620,12 +620,13 @@ chunk {
 .wilistitem {
 	height: 80px;
 	display: grid;
-	grid-template-columns: 4% 30% 66%;
+	grid-template-columns: 4% 30% 58% 8%;
 	margin-bottom: 10px;
 }
 
 .wientry {
 	padding-left: 10px;
+	padding-right: 10px;
 	background-color: #212122;
 }
 
@@ -642,7 +643,6 @@ chunk {
 }
 
 .wikey > input {
-	height: 100%;
 	background-color: #404040;
 	color: #ffffff;
 }
@@ -651,4 +651,8 @@ chunk {
 	width: 80%;
 	overflow: hidden;
 	font-size: 12pt;
+}
+
+.wiselective > button {
+	white-space: normal;
 }
