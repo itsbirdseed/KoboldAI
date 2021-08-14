@@ -1092,6 +1092,10 @@ def applyinputformatting(txt):
 def applyoutputformatting(txt):
     # Use standard quotes and apostrophes
     txt = utils.fixquotes(txt)
+
+    # Adventure mode clipping of all characters after '>'
+    if(vars.adventure):
+        txt = re.sub(r'\n*>(.|\n)*', '', txt, re.MULTILINE)
     
     # Trim incomplete sentences
     if(vars.formatoptns["frmttriminc"]):
@@ -1102,10 +1106,6 @@ def applyoutputformatting(txt):
     # Remove special characters
     if(vars.formatoptns["frmtrmspch"]):
         txt = utils.removespecialchars(txt)
-    
-    # Adventure mode clipping of all characters after '>'
-    if(vars.adventure):
-        txt = re.sub(r'\n*>(.|\n)*', '', txt, re.MULTILINE)
     
     return txt
 
