@@ -401,7 +401,7 @@ function returnWiList(ar) {
 
 function dosubmit() {
 	var txt = input_text.val();
-	socket.send({'cmd': 'submit', 'actionmode': action_mode, 'data': txt});
+	socket.send({'cmd': 'submit', 'actionmode': adventure ? action_mode : 0, 'data': txt});
 	input_text.val("");
 	hideMessage();
 	hidegenseqs();
