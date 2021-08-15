@@ -61,6 +61,7 @@ var seqselmenu;
 var seqselcontents;
 
 var memorymode = false;
+var gamestarted = false;
 
 // Key states
 var shift_down   = false;
@@ -71,7 +72,7 @@ var allowtoggle = false;
 var formatcount = 0;
 
 // Adventure
-var action_mode = 1;  // 0: story, 1: action
+var action_mode = 0;  // 0: story, 1: action
 var adventure = false;
 
 //=================================================================//
@@ -408,8 +409,12 @@ function dosubmit() {
 }
 
 function changemode() {
-	action_mode += 1;
-	action_mode %= 2;  // Total number of action modes (Story and Action)
+	if(gamestarted) {
+		action_mode += 1;
+		action_mode %= 2;  // Total number of action modes (Story and Action)
+	} else {
+		action_mode = 0;  // Force "Story" mode if game is not started
+	}
 
 	switch (action_mode) {
 		case 0: button_mode_label.html("Story"); break;
@@ -637,6 +642,9 @@ $(document).ready(function(){
 			format_menu.html("");
 			wi_menu.html("");
 		} else if(msg.cmd == "updatescreen") {
+			gamestarted = msg.gamestarted;
+			action_mode = 0;
+			changemode();
 			// Send game content to Game Screen
 			game_text.html(msg.data);
 			// Scroll to bottom of text

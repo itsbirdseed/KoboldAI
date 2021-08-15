@@ -547,7 +547,7 @@ def setStartState():
         txt = txt + "Please load a game or enter a prompt below to begin!</span>"
     else:
         txt = txt + "Please load or import a story to read. There is no AI in this mode."
-    emit('from_server', {'cmd': 'updatescreen', 'data': txt})
+    emit('from_server', {'cmd': 'updatescreen', 'gamestarted': vars.gamestarted, 'data': txt})
     emit('from_server', {'cmd': 'setgamestate', 'data': 'start'})
 
 #==================================================================#
@@ -671,7 +671,7 @@ def actionsubmit(data, actionmode=0):
         vars.prompt = data
         if(not vars.noai):
             # Clear the startup text from game screen
-            emit('from_server', {'cmd': 'updatescreen', 'data': 'Please wait, generating story...'})
+            emit('from_server', {'cmd': 'updatescreen', 'gamestarted': vars.gamestarted, 'data': 'Please wait, generating story...'})
             calcsubmit(data) # Run the first action through the generator
         else:
             refresh_story()
@@ -1116,7 +1116,7 @@ def refresh_story():
     text_parts = ['<chunk n="0" id="n0">', html.escape(vars.prompt), '</chunk>']
     for idx, item in enumerate(vars.actions, start=1):
         text_parts.extend(('<chunk n="', str(idx), '" id="n', str(idx), '">', html.escape(item), '</chunk>'))
-    emit('from_server', {'cmd': 'updatescreen', 'data': formatforhtml(''.join(text_parts))})
+    emit('from_server', {'cmd': 'updatescreen', 'gamestarted': vars.gamestarted, 'data': formatforhtml(''.join(text_parts))})
 
 #==================================================================#
 # Sends the current generator settings to the Game Menu
