@@ -1105,7 +1105,7 @@ def applyoutputformatting(txt):
         txt = utils.replaceblanklines(txt)
     # Remove special characters
     if(vars.formatoptns["frmtrmspch"]):
-        txt = utils.removespecialchars(txt)
+        txt = utils.removespecialchars(txt, vars)
     
     return txt
 
