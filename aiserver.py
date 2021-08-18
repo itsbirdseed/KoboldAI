@@ -1095,7 +1095,7 @@ def applyoutputformatting(txt):
 
     # Adventure mode clipping of all characters after '>'
     if(vars.adventure):
-        txt = re.sub(r'\n*>(.|\n)*', '', txt, re.MULTILINE)
+        txt = re.sub(r'\n* *>(.|\n)*', '', txt)
     
     # Trim incomplete sentences
     if(vars.formatoptns["frmttriminc"]):
