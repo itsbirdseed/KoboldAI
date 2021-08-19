@@ -642,9 +642,12 @@ $(document).ready(function(){
 			format_menu.html("");
 			wi_menu.html("");
 		} else if(msg.cmd == "updatescreen") {
+			_gamestarted = gamestarted
 			gamestarted = msg.gamestarted;
-			action_mode = 0;
-			changemode();
+			if(_gamestarted != gamestarted) {
+				action_mode = 0;
+				changemode();
+			}
 			// Send game content to Game Screen
 			game_text.html(msg.data);
 			// Scroll to bottom of text

@@ -97,6 +97,8 @@ class vars:
     saveow      = False  # Whether or not overwrite confirm has been displayed
     genseqs     = []     # Temporary storage for generated sequences
     useprompt   = True   # Whether to send the full prompt with every submit action
+    acregex_ai  = re.compile(r'\n* *>(.|\n)*')  # Pattern for matching adventure actions from the AI so we can remove them
+    acregex_ui  = re.compile(r'^ *(&gt;.*)$', re.MULTILINE)    # Pattern for matching actions in the HTML-escaped story so we can apply colouring, etc (make sure to encase part to format in parentheses)
     actionmode  = 1
     adventure   = False
 
@@ -535,6 +537,7 @@ def get_message(msg):
     elif(msg['cmd'] == 'setadventure'):
         vars.adventure = msg['data']
         settingschanged()
+        refresh_story()
     elif(msg['cmd'] == 'importwi'):
         wiimportrequest()
     
@@ -1095,7 +1098,7 @@ def applyoutputformatting(txt):
 
     # Adventure mode clipping of all characters after '>'
     if(vars.adventure):
-        txt = re.sub(r'\n* *>(.|\n)*', '', txt)
+        txt = vars.acregex_ai.sub('', txt)
     
     # Trim incomplete sentences
     if(vars.formatoptns["frmttriminc"]):
@@ -1115,7 +1118,9 @@ def applyoutputformatting(txt):
 def refresh_story():
     text_parts = ['<chunk n="0" id="n0">', html.escape(vars.prompt), '</chunk>']
     for idx, item in enumerate(vars.actions, start=1):
-        text_parts.extend(('<chunk n="', str(idx), '" id="n', str(idx), '">', html.escape(item), '</chunk>'))
+        if vars.adventure:  # Add special formatting to adventure actions
+            item = vars.acregex_ui.sub('<action>\\1</action>', html.escape(item))
+        text_parts.extend(('<chunk n="', str(idx), '" id="n', str(idx), '">', item, '</chunk>'))
     emit('from_server', {'cmd': 'updatescreen', 'gamestarted': vars.gamestarted, 'data': formatforhtml(''.join(text_parts))})
 
 #==================================================================#
