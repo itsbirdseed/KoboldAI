@@ -88,6 +88,23 @@ var adventure = false;
 //  METHODS
 //=================================================================//
 
+function htmlEscape(txt) {
+	return txt.replace(/[&<>"']/g, function (match) {
+		switch(match) {
+			case '&':
+				return '&amp;';
+			case '<':
+				return '&lt;';
+			case '>':
+				return '&gt;';
+			case '"':
+				return '&quot;';
+			case "'":
+				return '&#39;';
+		}
+	});
+}
+
 function addSetting(ob) {	
 	// Add setting block to Settings Menu
 	if(ob.uitype == "slider"){
@@ -690,12 +707,14 @@ function chunkOnKeyDown(event) {
 				}
 				// If it's the same, we're at the beginning of a chunk
 				if((chunk = document.activeElement.previousSibling) && chunk.tagName == "CHUNK") {
+					chunk.innerHTML = htmlEscape(chunk.innerText.slice(0, -1)).replace(/\n/g, "<br>");  // Delete last character
 					range = document.createRange();
 					selection = getSelection();
 					range.selectNodeContents(chunk);
 					range.collapse(false);
 					selection.removeAllRanges();
 					selection.addRange(range);
+					current_editing_chunk = chunk;  // Make sure the program knows the chunk has been edited (when we deleted last character)
 				}
 			}, 2);
 			return
