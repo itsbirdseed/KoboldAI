@@ -10,6 +10,7 @@ import re
 import tkinter as tk
 from tkinter import messagebox
 import json
+import collections
 from typing import Literal, Union
 
 import requests
@@ -23,6 +24,7 @@ import fileops
 import gensettings
 from utils import debounce
 import utils
+import structures
 import breakmodel
 
 #==================================================================#
@@ -78,7 +80,7 @@ class vars:
     memory      = ""     # Text submitted to memory field
     authornote  = ""     # Text submitted to Author's Note field
     andepth     = 3      # How far back in history to append author's note
-    actions     = []     # Array of actions submitted by user and AI
+    actions     = structures.KoboldStoryRegister()  # Actions submitted by user and AI
     worldinfo   = []     # Array of World Info key/value objects
     badwords    = []     # Array of str/chr values that should be removed from output
     badwordsids = []     # Tokenized array of badwords
@@ -104,6 +106,7 @@ class vars:
     svowname    = ""     # Filename that was flagged for overwrite confirm
     saveow      = False  # Whether or not overwrite confirm has been displayed
     genseqs     = []     # Temporary storage for generated sequences
+    recentback  = False  # Whether Back button was recently used without Submitting or Retrying after
     useprompt   = True   # Whether to send the full prompt with every submit action
     breakmodel  = False  # For GPU users, whether to use both system RAM and VRAM to conserve VRAM while offering speedup compared to CPU-only
     bmsupported = False  # Whether the breakmodel option is supported (GPT-Neo/GPT-J only, currently)
@@ -530,7 +533,7 @@ def do_connect():
 #==================================================================#
 @socketio.on('message')
 def get_message(msg):
-    print("{0}Data recieved:{1}{2}".format(colors.GREEN, msg, colors.END))
+    print("{0}Data received:{1}{2}".format(colors.GREEN, msg, colors.END))
     # Submit action
     if(msg['cmd'] == 'submit'):
         if(vars.mode == "play"):
@@ -666,6 +669,10 @@ def get_message(msg):
         vars.worldinfo[msg['data']]["selective"] = True
     elif(msg['cmd'] == 'wiseloff'):
         vars.worldinfo[msg['data']]["selective"] = False
+    elif(msg['cmd'] == 'wiconstanton'):
+        vars.worldinfo[msg['data']]["constant"] = True
+    elif(msg['cmd'] == 'wiconstantoff'):
+        vars.worldinfo[msg['data']]["constant"] = False
     elif(msg['cmd'] == 'sendwilist'):
         commitwi(msg['data'])
     elif(msg['cmd'] == 'aidgimport'):
@@ -703,7 +710,6 @@ def get_message(msg):
         vars.adventure = msg['data']
         settingschanged()
         refresh_settings()
-        refresh_story()
     elif(msg['cmd'] == 'importwi'):
         wiimportrequest()
     
@@ -827,6 +833,7 @@ def actionsubmit(data, actionmode=0):
         return
     set_aibusy(1)
 
+    vars.recentback = False
     vars.actionmode = actionmode
 
     # "Action" mode
@@ -880,12 +887,18 @@ def actionretry(data):
         return
     if(vars.aibusy):
         return
-    set_aibusy(1)
     # Remove last action if possible and resubmit
-    if(len(vars.actions) > 0):
-        vars.actions.pop()
-        remove_story_chunk(len(vars.actions) + 1)
+    if(vars.gamestarted if vars.useprompt else len(vars.actions) > 0):
+        set_aibusy(1)
+        if(not vars.recentback and len(vars.actions) != 0 and len(vars.genseqs) == 0):  # Don't pop if we're in the "Select sequence to keep" menu or if there are no non-prompt actions
+            last_key = vars.actions.get_last_key()
+            vars.actions.pop()
+            remove_story_chunk(last_key + 1)
+        vars.genseqs = []
         calcsubmit('')
+        vars.recentback = False
+    elif(not vars.useprompt):
+        emit('from_server', {'cmd': 'errmsg', 'data': "Please enable \"Always Add Prompt\" to retry with your prompt."})
 
 #==================================================================#
 #  
@@ -894,10 +907,15 @@ def actionback():
     if(vars.aibusy):
         return
     # Remove last index of actions and refresh game screen
-    if(len(vars.actions) > 0):
-        action_index = len(vars.actions)
+    if(len(vars.genseqs) == 0 and len(vars.actions) > 0):
+        last_key = vars.actions.get_last_key()
         vars.actions.pop()
-        remove_story_chunk(len(vars.actions) + 1)
+        vars.recentback = True
+        remove_story_chunk(last_key + 1)
+    elif(len(vars.genseqs) == 0):
+        emit('from_server', {'cmd': 'errmsg', 'data': "Cannot delete the prompt."})
+    else:
+        vars.genseqs = []
 
 #==================================================================#
 # Take submitted text and build the text to be given to generator
@@ -964,11 +982,13 @@ def calcsubmit(txt):
                 forceanote = True
             
             # Get most recent action tokens up to our budget
-            for n in range(actionlen):
+            n = 0
+            for key in reversed(vars.actions):
+                chunk = vars.actions[key]
                 
                 if(budget <= 0):
                     break
-                acttkns = tokenizer.encode(vars.actions[(-1-n)])
+                acttkns = tokenizer.encode(chunk)
                 tknlen = len(acttkns)
                 if(tknlen < budget):
                     tokens = acttkns + tokens
@@ -984,6 +1004,7 @@ def calcsubmit(txt):
                     if(anotetxt != ""):
                         tokens = anotetkns + tokens # A.N. len already taken from bdgt
                         anoteadded = True
+                n += 1
             
             # If we're not using the prompt every time and there's still budget left,
             # add some prompt.
@@ -1038,17 +1059,19 @@ def calcsubmit(txt):
             
         subtxt = ""
         prompt = vars.prompt
-        for n in range(actionlen):
+        n = 0
+        for key in reversed(vars.actions):
+            chunk = vars.actions[key]
             
             if(budget <= 0):
                     break
-            actlen = len(vars.actions[(-1-n)])
+            actlen = len(chunk)
             if(actlen < budget):
-                subtxt = vars.actions[(-1-n)] + subtxt
+                subtxt = chunk + subtxt
                 budget -= actlen
             else:
                 count = budget * -1
-                subtxt = vars.actions[(-1-n)][count:] + subtxt
+                subtxt = chunk[count:] + subtxt
                 budget = 0
                 break
             
@@ -1065,6 +1088,7 @@ def calcsubmit(txt):
                 if(anotetxt != ""):
                     subtxt = anotetxt + subtxt # A.N. len already taken from bdgt
                     anoteadded = True
+            n += 1
         
         # Did we get to add the A.N.? If not, do it here
         if(anotetxt != ""):
@@ -1157,7 +1181,7 @@ def genresult(genout):
     # Add formatted text to Actions array and refresh the game screen
     vars.actions.append(genout)
     update_story_chunk('last')
-    emit('from_server', {'cmd': 'texteffect', 'data': len(vars.actions)}, broadcast=True)
+    emit('from_server', {'cmd': 'texteffect', 'data': vars.actions.get_last_key() if len(vars.actions) else 0}, broadcast=True)
 
 #==================================================================#
 #  Send generator sequences to the UI for selection
@@ -1184,7 +1208,7 @@ def selectsequence(n):
         return
     vars.actions.append(vars.genseqs[int(n)]["generated_text"])
     update_story_chunk('last')
-    emit('from_server', {'cmd': 'texteffect', 'data': len(vars.actions)}, broadcast=True)
+    emit('from_server', {'cmd': 'texteffect', 'data': vars.actions.get_last_key() if len(vars.actions) else 0}, broadcast=True)
     emit('from_server', {'cmd': 'hidegenseqs', 'data': ''}, broadcast=True)
     vars.genseqs = []
 
@@ -1243,7 +1267,7 @@ def sendtocolab(txt, min, max):
         # Add formatted text to Actions array and refresh the game screen
         #vars.actions.append(genout)
         #refresh_story()
-        #emit('from_server', {'cmd': 'texteffect', 'data': len(vars.actions)})
+        #emit('from_server', {'cmd': 'texteffect', 'data': vars.actions.get_last_key() if len(vars.actions) else 0})
         
         set_aibusy(0)
     else:
@@ -1315,10 +1339,11 @@ def applyoutputformatting(txt):
 #==================================================================#
 def refresh_story():
     text_parts = ['<chunk n="0" id="n0" tabindex="-1">', html.escape(vars.prompt), '</chunk>']
-    for idx, item in enumerate(vars.actions, start=1):
+    for idx in vars.actions:
+        item = vars.actions[idx]
+        idx += 1
         item = html.escape(item)
-        if vars.adventure:  # Add special formatting to adventure actions
-            item = vars.acregex_ui.sub('<action>\\1</action>', item)
+        item = vars.acregex_ui.sub('<action>\\1</action>', item)  # Add special formatting to adventure actions
         text_parts.extend(('<chunk n="', str(idx), '" id="n', str(idx), '" tabindex="-1">', item, '</chunk>'))
     emit('from_server', {'cmd': 'updatescreen', 'gamestarted': vars.gamestarted, 'data': formatforhtml(''.join(text_parts))}, broadcast=True)
 
@@ -1335,7 +1360,7 @@ def update_story_chunk(idx: Union[int, Literal['last']]):
             refresh_story()
             return
 
-        idx = len(vars.actions)
+        idx = (vars.actions.get_last_key() if len(vars.actions) else 0) + 1
 
     if idx == 0:
         text = vars.prompt
@@ -1345,11 +1370,10 @@ def update_story_chunk(idx: Union[int, Literal['last']]):
         text = vars.actions[idx - 1]
 
     item = html.escape(text)
-    if vars.adventure:  # Add special formatting to adventure actions
-        item = vars.acregex_ui.sub('<action>\\1</action>', item)
+    item = vars.acregex_ui.sub('<action>\\1</action>', item)  # Add special formatting to adventure actions
 
     chunk_text = f'<chunk n="{idx}" id="n{idx}" tabindex="-1">{formatforhtml(item)}</chunk>'
-    emit('from_server', {'cmd': 'updatechunk', 'data': {'index': idx, 'html': chunk_text, 'last': (idx == len(vars.actions))}}, broadcast=True)
+    emit('from_server', {'cmd': 'updatechunk', 'data': {'index': idx, 'html': chunk_text, 'last': (idx == (vars.actions.get_last_key() if len(vars.actions) else 0))}}, broadcast=True)
 
 
 #==================================================================#
@@ -1507,7 +1531,7 @@ def togglewimode():
 #   
 #==================================================================#
 def addwiitem():
-    ob = {"key": "", "keysecondary": "", "content": "", "num": len(vars.worldinfo), "init": False, "selective": False}
+    ob = {"key": "", "keysecondary": "", "content": "", "num": len(vars.worldinfo), "init": False, "selective": False, "constant": False}
     vars.worldinfo.append(ob);
     emit('from_server', {'cmd': 'addwiitem', 'data': ob}, broadcast=True)
 
@@ -1562,6 +1586,7 @@ def commitwi(ar):
         vars.worldinfo[ob["num"]]["keysecondary"] = ob["keysecondary"]
         vars.worldinfo[ob["num"]]["content"]      = ob["content"]
         vars.worldinfo[ob["num"]]["selective"]    = ob["selective"]
+        vars.worldinfo[ob["num"]]["constant"]     = ob.get("constant", False)
     # Was this a deletion request? If so, remove the requested index
     if(vars.deletewi >= 0):
         del vars.worldinfo[vars.deletewi]
@@ -1601,16 +1626,29 @@ def checkworldinfo(txt):
             txt    = ""
             depth += 1
         
+        if(ln > 0):
+            chunks = collections.deque()
+            i = 0
+            for key in reversed(vars.actions):
+                chunk = vars.actions[key]
+                chunks.appendleft(chunk)
+                if(i == depth):
+                    break
+        
         if(ln >= depth):
-            txt = "".join(vars.actions[(depth*-1):])
+            txt = "".join(chunks)
         elif(ln > 0):
-            txt = vars.prompt + "".join(vars.actions[(depth*-1):])
+            txt = vars.prompt + "".join(chunks)
         elif(ln == 0):
             txt = vars.prompt
     
     # Scan text for matches on WI keys
     wimem = ""
     for wi in vars.worldinfo:
+        if(wi.get("constant", False)):
+            wimem = wimem + wi["content"] + "\n"
+            continue
+
         if(wi["key"] != ""):
             # Split comma-separated keys
             keys = wi["key"].split(",")
@@ -1697,7 +1735,7 @@ def ikrequest(txt):
         print("{0}{1}{2}".format(colors.CYAN, genout, colors.END))
         vars.actions.append(genout)
         update_story_chunk('last')
-        emit('from_server', {'cmd': 'texteffect', 'data': len(vars.actions)}, broadcast=True)
+        emit('from_server', {'cmd': 'texteffect', 'data': vars.actions.get_last_key() if len(vars.actions) else 0}, broadcast=True)
         
         set_aibusy(0)
     else:
@@ -1747,7 +1785,7 @@ def oairequest(txt, min, max):
         print("{0}{1}{2}".format(colors.CYAN, genout, colors.END))
         vars.actions.append(genout)
         update_story_chunk('last')
-        emit('from_server', {'cmd': 'texteffect', 'data': len(vars.actions)}, broadcast=True)
+        emit('from_server', {'cmd': 'texteffect', 'data': vars.actions.get_last_key() if len(vars.actions) else 0}, broadcast=True)
         
         set_aibusy(0)
     else:
@@ -1825,17 +1863,18 @@ def saveRequest(savpath):
         js["prompt"]      = vars.prompt
         js["memory"]      = vars.memory
         js["authorsnote"] = vars.authornote
-        js["actions"]     = vars.actions
+        js["actions"]     = tuple(vars.actions.values())
         js["worldinfo"]   = []
         
         # Extract only the important bits of WI
         for wi in vars.worldinfo:
-            if(wi["key"] != ""):
+            if(wi["constant"] or wi["key"] != ""):
                 js["worldinfo"].append({
                     "key": wi["key"],
                     "keysecondary": wi["keysecondary"],
                     "content": wi["content"],
-                    "selective": wi["selective"]
+                    "selective": wi["selective"],
+                    "constant": wi["constant"]
                 })
         
         # Write it
@@ -1876,10 +1915,14 @@ def loadRequest(loadpath):
         vars.gamestarted = js["gamestarted"]
         vars.prompt      = js["prompt"]
         vars.memory      = js["memory"]
-        vars.actions     = js["actions"]
         vars.worldinfo   = []
         vars.lastact     = ""
         vars.lastctx     = ""
+
+        del vars.actions
+        vars.actions = structures.KoboldStoryRegister()
+        for s in js["actions"]:
+            vars.actions.append(s)
         
         # Try not to break older save files
         if("authorsnote" in js):
@@ -1896,7 +1939,8 @@ def loadRequest(loadpath):
                     "content": wi["content"],
                     "num": num,
                     "init": True,
-                    "selective": wi.get("selective", False)
+                    "selective": wi.get("selective", False),
+                    "constant": wi.get("constant", False)
                 })
                 num += 1
         
@@ -1988,7 +2032,7 @@ def importgame():
             vars.prompt = ""
         vars.memory      = ref["memory"]
         vars.authornote  = ref["authorsNote"] if type(ref["authorsNote"]) is str else ""
-        vars.actions     = []
+        vars.actions     = structures.KoboldStoryRegister()
         vars.worldinfo   = []
         vars.lastact     = ""
         vars.lastctx     = ""
@@ -2014,7 +2058,8 @@ def importgame():
                         "content": wi["entry"],
                         "num": num,
                         "init": True,
-                        "selective": wi.get("selective", False)
+                        "selective": wi.get("selective", False),
+                        "constant": wi.get("constant", False)
                     })
                     num += 1
         
@@ -2047,7 +2092,7 @@ def importAidgRequest(id):
         vars.prompt      = js["promptContent"]
         vars.memory      = js["memory"]
         vars.authornote  = js["authorsNote"]
-        vars.actions     = []
+        vars.actions     = structures.KoboldStoryRegister()
         vars.worldinfo   = []
         vars.lastact     = ""
         vars.lastctx     = ""
@@ -2060,7 +2105,8 @@ def importAidgRequest(id):
                 "content": wi["entry"],
                 "num": num,
                 "init": True,
-                "selective": wi.get("selective", False)
+                "selective": wi.get("selective", False),
+                "constant": wi.get("constant", False)
             })
             num += 1
         
@@ -2093,7 +2139,8 @@ def wiimportrequest():
                     "content": wi["entry"],
                     "num": num,
                     "init": True,
-                    "selective": wi.get("selective", False)
+                    "selective": wi.get("selective", False),
+                    "constant": wi.get("constant", False)
                 })
                 num += 1
         
@@ -2113,7 +2160,7 @@ def newGameRequest():
     vars.gamestarted = False
     vars.prompt      = ""
     vars.memory      = ""
-    vars.actions     = []
+    vars.actions     = structures.KoboldStoryRegister()
     
     vars.authornote  = ""
     vars.worldinfo   = []
@@ -2142,13 +2189,17 @@ if __name__ == "__main__":
     loadsettings()
     
     # Start Flask/SocketIO (Blocking, so this must be last method!)
-    print("{0}Server started!\rYou may now connect with a browser at http://127.0.0.1:5000/{1}".format(colors.GREEN, colors.END))
+    
     #socketio.run(app, host='0.0.0.0', port=5000)
     if(vars.remote):
-        from flask_cloudflared import start_cloudflared
-        start_cloudflared(5000)
+        from flask_cloudflared import _run_cloudflared
+        cloudflare = _run_cloudflared(5000)
+        with open('cloudflare.log', 'w') as cloudflarelog:
+            cloudflarelog.write("KoboldAI has finished loading and is available in the following link : " + cloudflare)
+            print(format(colors.GREEN) + "KoboldAI has finished loading and is available in the following link : " + cloudflare + format(colors.END))
         socketio.run(app, host='0.0.0.0', port=5000)
     else:
         import webbrowser
         webbrowser.open_new('http://localhost:5000')
+        print("{0}Server started!\rYou may now connect with a browser at http://127.0.0.1:5000/{1}".format(colors.GREEN, colors.END))
         socketio.run(app)
