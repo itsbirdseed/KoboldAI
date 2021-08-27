@@ -216,6 +216,9 @@ import torch.cuda.comm
 import copy
 import gc
 
+import torch_xla
+import torch_xla.core.xla_model as xm
+
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
 from transformers.utils import logging
@@ -229,10 +232,17 @@ class MaxSharedRamBlocksException(Exception):
 
 
 breakmodel = True
-gpu_device = 'cuda'
+gpu_device = [xm.xla_device(n=i+1, devkind="TPU") for i in range(8)]
 total_blocks = 24
 ram_blocks = 7
 max_shared_ram_blocks = None
+
+
+def get_device():
+    get_device.i += 1
+    get_device.i %= len(gpu_device)
+    return gpu_device[get_device.i]
+get_device.i = -1
 
 
 def new_forward(
@@ -261,15 +271,15 @@ def new_forward(
             torch.cuda.empty_cache()
 
             for i in range(ram_blocks,len(self.h)):
-                self.h[i].to(gpu_device)
+                self.h[i].to(get_device())
 
             for i in range(ram_blocks):
                 self.h[i].to("cpu")
                 self.extrastorage[i] = copy.deepcopy(self.h[i])
-                smalltensor = torch.tensor(0).to(gpu_device)
+                smalltensor = torch.tensor(0).to(get_device())
                 for param1 in self.h[i].parameters():
                     param1.data = smalltensor
-                self.h[i].to(gpu_device)
+                self.h[i].to(get_device())
 
             for i in range(len(self.h)):
                 for param in self.h[i].parameters():
@@ -292,10 +302,10 @@ def new_forward(
                     torch.cuda.empty_cache()
 
             for param1,param2 in zip(self.h[0].parameters(),self.extrastorage[0].parameters()):
-                param1.data = param2.data.to(gpu_device, non_blocking=False).detach()
+                param1.data = param2.data.to(get_device(), non_blocking=False).detach()
 
             for param1,param2 in zip(self.h[ram_blocks-1].parameters(),self.extrastorage[ram_blocks-1].parameters()):
-                param1.data = param2.data.to(gpu_device, non_blocking=False).detach()
+                param1.data = param2.data.to(get_device(), non_blocking=False).detach()
     #END MODEL BREAK EDITS
 
     output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions

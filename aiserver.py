@@ -195,7 +195,7 @@ if(not vars.model in ["InferKit", "Colab", "OAI", "ReadOnly"]):
     # Test for GPU support
     import torch
     print("{0}Looking for GPU support...{1}".format(colors.PURPLE, colors.END), end="")
-    vars.hascuda = torch.cuda.is_available()
+    vars.hascuda = True
     vars.bmsupported = vars.model in ("EleutherAI/gpt-neo-1.3B", "EleutherAI/gpt-neo-2.7B", "NeoCustom")
     if(vars.hascuda):
         print("{0}FOUND!{1}".format(colors.GREEN, colors.END))
@@ -381,20 +381,29 @@ if(not vars.model in ["InferKit", "Colab", "OAI", "ReadOnly"]):
             tokenizer = GPT2Tokenizer.from_pretrained(vars.custmodpth)
             # Is CUDA available? If so, use GPU, otherwise fall back to CPU
             if(vars.hascuda):
+                print(vars.usegpu, vars.breakmodel)
                 if(vars.usegpu):
                     generator = pipeline('text-generation', model=model, tokenizer=tokenizer, device=0)
                 elif(vars.breakmodel):  # Use both RAM and VRAM (breakmodel)
                     n_layers = model.config.num_layers
                     breakmodel.total_blocks = n_layers
+                    print(1)
                     model.half().to('cpu')
                     gc.collect()
-                    model.transformer.wte.to(breakmodel.gpu_device)
-                    model.transformer.ln_f.to(breakmodel.gpu_device)
+                    print(2)
+                    model.transformer.wte.to(breakmodel.gpu_device[0])
+                    print(3)
+                    model.transformer.ln_f.to(breakmodel.gpu_device[0])
+                    print(4)
                     if(hasattr(model, 'lm_head')):
-                        model.lm_head.to(breakmodel.gpu_device)
+                        print(4.5)
+                        model.lm_head.to(breakmodel.gpu_device[0])
+                    print(5)
                     if(not hasattr(model.config, 'rotary') or not model.config.rotary):
-                        model.transformer.wpe.to(breakmodel.gpu_device)
+                        print(5.5)
+                        model.transformer.wpe.to(breakmodel.gpu_device[0])
                     gc.collect()
+                    print(6)
                     if(args.breakmodel_layers is not None):
                         breakmodel.ram_blocks = max(0, min(n_layers, args.breakmodel_layers))
                     else:
@@ -439,12 +448,12 @@ if(not vars.model in ["InferKit", "Colab", "OAI", "ReadOnly"]):
                     breakmodel.total_blocks = n_layers
                     model.half().to('cpu')
                     gc.collect()
-                    model.transformer.wte.to(breakmodel.gpu_device)
-                    model.transformer.ln_f.to(breakmodel.gpu_device)
+                    model.transformer.wte.to(breakmodel.gpu_device[0])
+                    model.transformer.ln_f.to(breakmodel.gpu_device[0])
                     if(hasattr(model, 'lm_head')):
-                        model.lm_head.to(breakmodel.gpu_device)
+                        model.lm_head.to(breakmodel.gpu_device[0])
                     if(not hasattr(model.config, 'rotary') or not model.config.rotary):
-                        model.transformer.wpe.to(breakmodel.gpu_device)
+                        model.transformer.wpe.to(breakmodel.gpu_device[0])
                     gc.collect()
                     if(args.breakmodel_layers is not None):
                         breakmodel.ram_blocks = max(0, min(n_layers, args.breakmodel_layers))
@@ -1126,7 +1135,7 @@ def generate(txt, min, max):
         # its first argument if we're using breakmodel, otherwise a string
         # is fine
         if(vars.hascuda and vars.breakmodel):
-            gen_in = tokenizer.encode(txt, return_tensors="pt", truncation=True).long().to(breakmodel.gpu_device)
+            gen_in = tokenizer.encode(txt, return_tensors="pt", truncation=True).long().to(breakmodel.gpu_device[0])
         else:
             gen_in = txt
 		
