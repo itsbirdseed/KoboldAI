@@ -212,12 +212,11 @@ Released under the Apache License 2.0
 
 
 import torch
-import torch.cuda.comm
 import copy
 import gc
 
 import torch_xla
-import torch_xla.core.xla_model as xm
+import torch_xla.core.xla_model
 
 from transformers.modeling_outputs import BaseModelOutputWithPast
 
@@ -232,7 +231,7 @@ class MaxSharedRamBlocksException(Exception):
 
 
 breakmodel = True
-gpu_device = [xm.xla_device(n=i+1, devkind="TPU") for i in range(8)]
+gpu_device = [f"xla:{i+1}" for i in range(8)]
 total_blocks = 24
 ram_blocks = 7
 max_shared_ram_blocks = None
@@ -268,7 +267,6 @@ def new_forward(
 
         if not hasattr(self, 'extrastorage'):
             setattr(self,"extrastorage",{})
-            torch.cuda.empty_cache()
 
             for i in range(ram_blocks,len(self.h)):
                 self.h[i].to(get_device())
@@ -286,7 +284,6 @@ def new_forward(
                     param.requires_grad = False
                     param.data = param.data.detach()
                     gc.collect()
-                    torch.cuda.empty_cache()
 
             for i in range(ram_blocks):
                 for param in self.extrastorage[i].parameters():
@@ -299,7 +296,6 @@ def new_forward(
                     else:
                         param.data = param.data.detach()
                     gc.collect()
-                    torch.cuda.empty_cache()
 
             for param1,param2 in zip(self.h[0].parameters(),self.extrastorage[0].parameters()):
                 param1.data = param2.data.to(get_device(), non_blocking=False).detach()
@@ -408,7 +404,7 @@ def new_forward(
 
 
     if breakmodel:
-        copystream = torch.cuda.Stream(device=0,priority = -1)
+        pass
 
     for i, (block, layer_past) in enumerate(zip(self.h, past_key_values)):
 
@@ -418,8 +414,9 @@ def new_forward(
                 for param1,param2 in zip(self.h[index1].parameters(),self.h[(i-1)%ram_blocks].parameters()):
                     param1.data = param2.data
                 for param1,param2 in zip(self.h[index1].parameters(),self.extrastorage[index1].parameters()):
-                    with torch.cuda.stream(copystream):
-                        torch.cuda.comm.broadcast(param2.data,out = [param1.data])
+                    # with torch.cuda.stream(copystream):
+                    #     torch.cuda.comm.broadcast(param2.data,out = [param1.data])
+                    param1.data = param2.data.to(get_device())
 
 
         attn_type = self.config.attention_layers[i]
@@ -471,13 +468,9 @@ def new_forward(
 
         if breakmodel:
             if i in range(ram_blocks):
-                torch.cuda.synchronize()
-                torch.cuda.empty_cache()
+                pass
 
-    if breakmodel:
-        del copystream
 
-    torch.cuda.empty_cache()
 
 
     hidden_states = self.ln_f(hidden_states)

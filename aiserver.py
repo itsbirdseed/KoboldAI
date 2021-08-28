@@ -1157,7 +1157,7 @@ def generate(txt, min, max):
                 )
     except Exception as e:
         emit('from_server', {'cmd': 'errmsg', 'data': 'Error occured during generator call, please check console.'}, broadcast=True)
-        print("{0}{1}{2}".format(colors.RED, e, colors.END))
+        __import__('traceback').print_exc()
         set_aibusy(0)
         return
     
