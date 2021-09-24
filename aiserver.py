@@ -239,13 +239,14 @@ if(not vars.model in ["InferKit", "Colab", "OAI", "ReadOnly"]):
             vars.breakmodel = True
     elif(vars.hascuda):    
         if(vars.bmsupported):
-            print(colors.YELLOW + "You're using a model that supports GPU-CPU hybrid generation!\nCurrently only GPT-Neo models and GPT-J-6B support this feature.")
-        print("{0}Use GPU or CPU for generation?:  (Default GPU){1}".format(colors.CYAN, colors.END))
-        if(vars.bmsupported):
-            print(f"    1 - GPU\n    2 - CPU\n    3 - Both (slower than GPU-only but uses less VRAM)\n")
+            print(f"{colors.YELLOW}LOADING IN EXPERIMENTAL K80 MODE{colors.END}")
+            vars.breakmodel = True
+            vars.usegpu = False
+            genselected = True
         else:
+            print("{0}Use GPU or CPU for generation?:  (Default GPU){1}".format(colors.CYAN, colors.END))
             print("    1 - GPU\n    2 - CPU\n")
-        genselected = False
+            genselected = False
 
     if(vars.hascuda):
         while(genselected == False):
@@ -420,22 +421,7 @@ if(not vars.model in ["InferKit", "Colab", "OAI", "ReadOnly"]):
                     if(not hasattr(model.config, 'rotary') or not model.config.rotary):
                         model.transformer.wpe.to(breakmodel.positional_device)
                     gc.collect()
-                    if(args.breakmodel_layers is not None):
-                        breakmodel.ram_blocks = max(0, min(n_layers, args.breakmodel_layers))
-                    else:
-                        print(colors.CYAN + "\nHow many layers would you like to put into system RAM?")
-                        print("The more of them you put into system RAM, the slower it will run,")
-                        print("but it will require less VRAM")
-                        print("(roughly proportional to number of layers).")
-                        print(f"This model has{colors.YELLOW} {n_layers} {colors.CYAN}layers.{colors.END}\n")
-                        while(True):
-                            layerselect = input("# of layers> ")
-                            if(layerselect.isnumeric() and 0 <= int(layerselect) <= n_layers):
-                                breakmodel.ram_blocks = int(layerselect)
-                                break
-                            else:
-                                print(f"{colors.RED}Please enter an integer between 0 and {n_layers}.{colors.END}")
-                    print(f"{colors.PURPLE}Will commit{colors.YELLOW} {breakmodel.ram_blocks} {colors.PURPLE}of{colors.YELLOW} {n_layers} {colors.PURPLE}layers to system RAM.{colors.END}")
+                    breakmodel.ram_blocks = n_layers // 2
                     GPTNeoModel.forward = breakmodel.new_forward
                     generator = model.generate
                 else:
@@ -472,22 +458,7 @@ if(not vars.model in ["InferKit", "Colab", "OAI", "ReadOnly"]):
                     if(not hasattr(model.config, 'rotary') or not model.config.rotary):
                         model.transformer.wpe.to(breakmodel.positional_device)
                     gc.collect()
-                    if(args.breakmodel_layers is not None):
-                        breakmodel.ram_blocks = max(0, min(n_layers, args.breakmodel_layers))
-                    else:
-                        print(colors.CYAN + "\nHow many layers would you like to put into system RAM?")
-                        print("The more of them you put into system RAM, the slower it will run,")
-                        print("but it will require less VRAM")
-                        print("(roughly proportional to number of layers).")
-                        print(f"This model has{colors.YELLOW} {n_layers} {colors.CYAN}layers.{colors.END}\n")
-                        while(True):
-                            layerselect = input("# of layers> ")
-                            if(layerselect.isnumeric() and 0 <= int(layerselect) <= n_layers):
-                                breakmodel.ram_blocks = int(layerselect)
-                                break
-                            else:
-                                print(f"{colors.RED}Please enter an integer between 0 and {n_layers}.{colors.END}")
-                    print(f"{colors.PURPLE}Will commit{colors.YELLOW} {breakmodel.ram_blocks} {colors.PURPLE}of{colors.YELLOW} {n_layers} {colors.PURPLE}layers to system RAM.{colors.END}")
+                    breakmodel.ram_blocks = n_layers // 2
                     GPTNeoModel.forward = breakmodel.new_forward
                     generator = model.generate
                 else:
