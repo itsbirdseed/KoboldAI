@@ -1,6 +1,6 @@
 #==================================================================#
 # KoboldAI
-# Version: 1.16.0
+# Version: 1.16.1
 # By: KoboldAIDev and the KoboldAI Community
 #==================================================================#
 
@@ -398,7 +398,7 @@ print("{0}OK!{1}".format(colors.GREEN, colors.END))
 if(not vars.model in ["InferKit", "Colab", "OAI", "ReadOnly"]):
     if(not vars.noai):
         print("{0}Initializing transformers, please wait...{1}".format(colors.PURPLE, colors.END))
-        from transformers import pipeline, GPT2Tokenizer, GPT2LMHeadModel, GPTNeoForCausalLM, GPTNeoModel, AutoModel
+        from transformers import pipeline, GPT2Tokenizer, GPT2LMHeadModel, GPTNeoForCausalLM, GPTNeoModel, AutoModelForCausalLM
         
         # If custom GPT Neo model was chosen
         if(vars.model == "NeoCustom"):
@@ -446,7 +446,7 @@ if(not vars.model in ["InferKit", "Colab", "OAI", "ReadOnly"]):
                     generator = pipeline('text-generation', model=vars.model, device=0)
                 elif(vars.breakmodel):  # Use both RAM and VRAM (breakmodel)
                     import breakmodel
-                    model = AutoModel.from_pretrained(vars.model)
+                    model = AutoModelForCausalLM.from_pretrained(vars.model)
                     n_layers = model.config.num_layers
                     breakmodel.total_blocks = n_layers
                     model.half().to('cpu')
@@ -908,6 +908,7 @@ def actionsubmit(data, actionmode=0):
     set_aibusy(1)
 
     vars.recentback = False
+    vars.recentedit = False
     vars.actionmode = actionmode
 
     # "Action" mode
@@ -927,7 +928,7 @@ def actionsubmit(data, actionmode=0):
         vars.prompt = data
         if(not vars.noai):
             # Clear the startup text from game screen
-            emit('from_server', {'cmd': 'updatescreen', 'gamestarted': vars.gamestarted, 'data': 'Please wait, generating story...'}, broadcast=True)
+            emit('from_server', {'cmd': 'updatescreen', 'gamestarted': False, 'data': 'Please wait, generating story...'}, broadcast=True)
             calcsubmit(data) # Run the first action through the generator
             emit('from_server', {'cmd': 'scrolldown', 'data': ''}, broadcast=True)
         else:
@@ -964,13 +965,14 @@ def actionretry(data):
     # Remove last action if possible and resubmit
     if(vars.gamestarted if vars.useprompt else len(vars.actions) > 0):
         set_aibusy(1)
-        if(not vars.recentback and len(vars.actions) != 0 and len(vars.genseqs) == 0):  # Don't pop if we're in the "Select sequence to keep" menu or if there are no non-prompt actions
+        if(not vars.recentback and not vars.recentedit and len(vars.actions) != 0 and len(vars.genseqs) == 0):  # Don't pop if we're in the "Select sequence to keep" menu or if there are no non-prompt actions
             last_key = vars.actions.get_last_key()
             vars.actions.pop()
             remove_story_chunk(last_key + 1)
         vars.genseqs = []
         calcsubmit('')
         vars.recentback = False
+        vars.recentedit = False
     elif(not vars.useprompt):
         emit('from_server', {'cmd': 'errmsg', 'data': "Please enable \"Always Add Prompt\" to retry with your prompt."})
 
@@ -1447,7 +1449,7 @@ def update_story_chunk(idx: Union[int, str]):
     item = vars.acregex_ui.sub('<action>\\1</action>', item)  # Add special formatting to adventure actions
 
     chunk_text = f'<chunk n="{idx}" id="n{idx}" tabindex="-1">{formatforhtml(item)}</chunk>'
-    emit('from_server', {'cmd': 'updatechunk', 'data': {'index': idx, 'html': chunk_text, 'last': (idx == (vars.actions.get_last_key() if len(vars.actions) else 0))}}, broadcast=True)
+    emit('from_server', {'cmd': 'updatechunk', 'data': {'index': idx, 'html': chunk_text}}, broadcast=True)
 
 
 #==================================================================#
@@ -1519,6 +1521,7 @@ def editrequest(n):
 # 
 #==================================================================#
 def editsubmit(data):
+    vars.recentedit = True
     if(vars.editln == 0):
         vars.prompt = data
     else:
@@ -1533,6 +1536,7 @@ def editsubmit(data):
 #  
 #==================================================================#
 def deleterequest():
+    vars.recentedit = True
     # Don't delete prompt
     if(vars.editln == 0):
         # Send error message
@@ -1547,8 +1551,11 @@ def deleterequest():
 # 
 #==================================================================#
 def inlineedit(chunk, data):
+    vars.recentedit = True
     chunk = int(chunk)
     if(chunk == 0):
+        if(len(data.strip()) == 0):
+            return
         vars.prompt = data
     else:
         vars.actions[chunk-1] = data
@@ -1561,6 +1568,7 @@ def inlineedit(chunk, data):
 #  
 #==================================================================#
 def inlinedelete(chunk):
+    vars.recentedit = True
     chunk = int(chunk)
     # Don't delete prompt
     if(chunk == 0):
