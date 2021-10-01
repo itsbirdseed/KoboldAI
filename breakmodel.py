@@ -229,7 +229,7 @@ class MaxSharedRamBlocksException(Exception):
 
 
 breakmodel = True
-devices = ['cpu', 'cuda']
+devices = ['cuda:0', 'cuda:1']
 total_blocks = 24
 ram_blocks = 7
 max_shared_ram_blocks = None
