@@ -1,6 +1,6 @@
 #==================================================================#
 # KoboldAI
-# Version: 1.16.3
+# Version: 1.16.4
 # By: KoboldAIDev and the KoboldAI Community
 #==================================================================#
 
@@ -277,6 +277,7 @@ if(vars.model == "InferKit"):
         print("{0}Please enter your InferKit API key:{1}\n".format(colors.CYAN, colors.END))
         vars.apikey = input("Key> ")
         # Write API key to file
+        os.makedirs('settings', exist_ok=True)
         file = open("settings/" + getmodelname() + ".settings", "w")
         try:
             js = {"apikey": vars.apikey}
@@ -311,6 +312,7 @@ if(vars.model == "OAI"):
         print("{0}Please enter your OpenAI API key:{1}\n".format(colors.CYAN, colors.END))
         vars.oaiapikey = input("Key> ")
         # Write API key to file
+        os.makedirs('settings', exist_ok=True)
         file = open("settings/" + getmodelname() + ".settings", "w")
         try:
             js = {"oaiapikey": vars.oaiapikey}
@@ -545,31 +547,31 @@ def do_connect():
         sendsettings()
         refresh_settings()
         vars.laststory = None
-        emit('from_server', {'cmd': 'setstoryname', 'data': vars.laststory}, broadcast=True)
+        emit('from_server', {'cmd': 'setstoryname', 'data': vars.laststory})
         sendwi()
-        emit('from_server', {'cmd': 'setmemory', 'data': vars.memory}, broadcast=True)
-        emit('from_server', {'cmd': 'setanote', 'data': vars.authornote}, broadcast=True)
+        emit('from_server', {'cmd': 'setmemory', 'data': vars.memory})
+        emit('from_server', {'cmd': 'setanote', 'data': vars.authornote})
         vars.mode = "play"
     else:
         # Game in session, send current game data and ready state to browser
         refresh_story()
         sendsettings()
         refresh_settings()
-        emit('from_server', {'cmd': 'setstoryname', 'data': vars.laststory}, broadcast=True)
+        emit('from_server', {'cmd': 'setstoryname', 'data': vars.laststory})
         sendwi()
-        emit('from_server', {'cmd': 'setmemory', 'data': vars.memory}, broadcast=True)
-        emit('from_server', {'cmd': 'setanote', 'data': vars.authornote}, broadcast=True)
+        emit('from_server', {'cmd': 'setmemory', 'data': vars.memory})
+        emit('from_server', {'cmd': 'setanote', 'data': vars.authornote})
         if(vars.mode == "play"):
             if(not vars.aibusy):
-                emit('from_server', {'cmd': 'setgamestate', 'data': 'ready'}, broadcast=True)
+                emit('from_server', {'cmd': 'setgamestate', 'data': 'ready'})
             else:
-                emit('from_server', {'cmd': 'setgamestate', 'data': 'wait'}, broadcast=True)
+                emit('from_server', {'cmd': 'setgamestate', 'data': 'wait'})
         elif(vars.mode == "edit"):
-            emit('from_server', {'cmd': 'editmode', 'data': 'true'}, broadcast=True)
+            emit('from_server', {'cmd': 'editmode', 'data': 'true'})
         elif(vars.mode == "memory"):
-            emit('from_server', {'cmd': 'memmode', 'data': 'true'}, broadcast=True)
+            emit('from_server', {'cmd': 'memmode', 'data': 'true'})
         elif(vars.mode == "wi"):
-            emit('from_server', {'cmd': 'wimode', 'data': 'true'}, broadcast=True)
+            emit('from_server', {'cmd': 'wimode', 'data': 'true'})
 
 #==================================================================#
 # Event triggered when browser SocketIO sends data to the server
@@ -616,6 +618,8 @@ def get_message(msg):
         savetofile()
     elif(not vars.remote and msg['cmd'] == 'loadfromfile'):
         loadfromfile()
+    elif(msg['cmd'] == 'loadfromstring'):
+        loadRequest(json.loads(msg['data']), filename=msg['filename'])
     elif(not vars.remote and msg['cmd'] == 'import'):
         importRequest()
     elif(msg['cmd'] == 'newgame'):
@@ -2065,14 +2069,21 @@ def loadfromfile():
 #==================================================================#
 #  Load a stored story from a file
 #==================================================================#
-def loadRequest(loadpath):
+def loadRequest(loadpath, filename=None):
     if(loadpath):
         # Leave Edit/Memory mode before continuing
         exitModes()
         
         # Read file contents into JSON object
-        file = open(loadpath, "r")
-        js   = json.load(file)
+        if(isinstance(loadpath, str)):
+            with open(loadpath, "r") as file:
+                js = json.load(file)
+            if(filename is None):
+                filename = path.basename(loadpath)
+        else:
+            js = loadpath
+            if(filename is None):
+                filename = "untitled.json"
         
         # Copy file contents to vars
         vars.gamestarted = js["gamestarted"]
@@ -2118,8 +2129,6 @@ def loadRequest(loadpath):
                 })
                 num += 1
         
-        file.close()
-        
         # Save path for save button
         vars.savedir = loadpath
         
@@ -2127,10 +2136,10 @@ def loadRequest(loadpath):
         vars.loadselect = ""
         
         # Refresh game screen
-        filename = path.basename(loadpath)
+        _filename = filename
         if(filename.endswith('.json')):
-            filename = filename[:-5]
-        vars.laststory = filename
+            _filename = filename[:-5]
+        vars.laststory = _filename
         emit('from_server', {'cmd': 'setstoryname', 'data': vars.laststory}, broadcast=True)
         sendwi()
         emit('from_server', {'cmd': 'setmemory', 'data': vars.memory}, broadcast=True)
@@ -2138,7 +2147,7 @@ def loadRequest(loadpath):
         refresh_story()
         emit('from_server', {'cmd': 'setgamestate', 'data': 'ready'}, broadcast=True)
         emit('from_server', {'cmd': 'hidegenseqs', 'data': ''}, broadcast=True)
-        print("{0}Story loaded from {1}!{2}".format(colors.GREEN, path.basename(loadpath), colors.END))
+        print("{0}Story loaded from {1}!{2}".format(colors.GREEN, filename, colors.END))
 
 #==================================================================#
 # Import an AIDungon game exported with Mimi's tool
