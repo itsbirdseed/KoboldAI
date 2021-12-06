@@ -69,7 +69,6 @@ var seqselcontents;
 
 var storyname = null;
 var memorymode = false;
-var memorytext = "";
 var gamestarted = false;
 var editmode = false;
 var connected = false;
@@ -93,7 +92,7 @@ var do_clear_ent = false;
 
 // Data records
 var actions = [];
-var memory = "";
+var memorytext = "";
 var prompt = "";
 var authors_note = "";
 var scripts = {
@@ -1230,7 +1229,7 @@ function applyScriptModifier(modifier_script, text="") {
 	// TODO: Sandbox this elsewhere so scripts can't mess with the client
 	let script = new Function("text", "actions", "memory", "state", "authorsNote", `"use strict";\n${scripts.shared}\n${modifier_script}\nreturn modifier(text)`);
 	
-	let script_return = script(text, modified_actions, memory, script_state, authors_note);
+	let script_return = script(text, modified_actions, memorytext, script_state, authors_note);
 	
 	if (!script_return || (!script_return.text && !script_return.text === "")) {
 		// TODO: ERRORING
