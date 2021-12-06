@@ -129,8 +129,6 @@ function enterEditMode() {
 	disableSendBtn();
 	hide([button_actback, button_actmem, button_actretry]);
 	show([button_delete]);
-	
-	current_mode = "edit";
 }
 
 function exitEditMode() {
@@ -143,8 +141,6 @@ function exitEditMode() {
 	show([button_actback, button_actmem, button_actretry]);
 	hide([button_delete]);
 	input_text.val("");
-	
-	current_mode = "play";
 }
 
 function editModeSelect(n) {
@@ -157,8 +153,6 @@ function enterMemoryMode() {
 	hide([button_actback, button_actretry, button_actedit, button_delete]);
 	// Display Author's Note field
 	anote_menu.slideDown("fast");
-	
-	current_mode = "memory";
 }
 
 function exitMemoryMode() {
@@ -168,21 +162,11 @@ function exitMemoryMode() {
 	input_text.val("");
 	// Hide Author's Note field
 	anote_menu.slideUp("fast");
-	
-	current_mode = "play";
 }
 
 function dosubmit() {
 	var txt = input_text.val();
-	
-	if(current_mode == "play"){
-		// Run the input through the input modifier script
-		let [new_input, should_stop] = applyScriptModifier(scripts.inputModifier, txt);
-		socket.send({'cmd': 'submit', 'data': new_input, 'stop': should_stop});	
-	} else {
-		socket.send({'cmd': 'submit', 'data': txt});
-	}
-
+	socket.send({'cmd': 'submit', 'data': txt});
 	input_text.val("");
 	hideMessage();
 }
@@ -252,24 +236,6 @@ function modifyOutput(output_text) {
 //  READY/RUNTIME
 //=================================================================//
 
-// Replaces returns and newlines with HTML breaks
-function formatForHtml(txt) {
-	return txt.replace("\\r", "<br/>").replace("\\n", "<br/>").replace('\n', '<br/>').replace('\r', '<br/>');
-}
-
-// Takes actions and turns into html code for displaying
-function buildGameScreen(action_list) {
-	let text = '<chunk n="0" id="n0">'+prompt+'</chunk>';
-	
-	let position = 1;
-	for (let item of actions) {
-		text += '<chunk n="'+position+'" id="n'+position+'">'+item+'</chunk>';
-		position += 1;
-	}
-	
-	return formatForHtml(text);
-}
-
 $(document).ready(function(){
 	
 	// Bind UI references
@@ -303,23 +269,14 @@ $(document).ready(function(){
     socket = io.connect('http://127.0.0.1:5000');
 	
 	socket.on('from_server', function(msg) {
-		console.log(`Data recieved: ${JSON.stringify(msg)}`)
-		
-		if(msg.cmd == "connected") {
+        if(msg.cmd == "connected") {
 			// Connected to Server Actions
 			$('#connectstatus').html("<b>Connected to KoboldAI Process!</b>");
 			$('#connectstatus').removeClass("color_orange");
 			$('#connectstatus').addClass("color_green");
 		} else if(msg.cmd == "updatescreen") {
 			// Send game content to Game Screen
-			if (msg.data) {
-				// Server provided its own html
-				game_text.html(msg.data);
-			} else {
-				// Build game screen html based on what we've got
-				game_text.html(buildGameScreen(actions))
-			}
-
+			game_text.html(msg.data);
 			// Scroll to bottom of text
 			setTimeout(function () {
 				$('#gamescreen').animate({scrollTop: $('#gamescreen').prop('scrollHeight')}, 1000);
@@ -338,8 +295,6 @@ $(document).ready(function(){
 				enableSendBtn();
 				enableButtons([button_actmem]);
 				disableButtons([button_actedit, button_actback, button_actretry]);
-				
-				current_mode = "play";
 			}
 		} else if(msg.cmd == "editmode") {
 			// Enable or Disable edit mode
@@ -409,23 +364,8 @@ $(document).ready(function(){
 		} else if(msg.cmd == "setanote") {
 			// Set contents of Author's Note field
 			anote_input.val(msg.data);
-		} else if(msg.cmd == "updatedata") {
-			// Update local records based on what the server holds
-			// (Ideally we'd sync each individual change so this is only necessary on initial loads)
-			if('actions' in msg) actions = msg.actions;
-			if('memory' in msg) memory = msg.memory;
-			if('prompt' in msg) prompt = msg.prompt;
-			if('scripts' in msg) scripts = msg.scripts;
-			if('authornote' in msg) authors_note = msg.authornote;
-    } else if(msg.cmd == "modcontext") {
-			answerContextRequest(msg.data)
-		} else if(msg.cmd == "modoutput") {
-			modifyOutput(msg.data)
-		} else if(msg.cmd == "setscriptstate") {
-			// New / loaded script state received from the server
-			script_state = msg.data
 		}
-		});	
+    });	
 	
 	socket.on('disconnect', function() {
 		$('#connectstatus').html("<b>Lost connection...</b>");
