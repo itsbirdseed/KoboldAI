@@ -13,6 +13,8 @@ dependencies:
   - transformers
   - pip
   - git
+  - lua=5.4.3
   - pip:
     - flask-cloudflared
     - flask-ngrok
+    - lupa
