@@ -155,26 +155,28 @@ class PenalizingCausalTransformer(CausalTransformer):
     def __init__(self, config):
         # Initialize
         super().__init__(config)
-        def generate(state, key, ctx, ctx_length, aux, sampler_options, soft_embeddings=None):
+        def generate_step(state, key, ctx, ctx_length, aux, sampler_options, soft_embeddings=None):
             gen_length = self.gen_length
             # These are the tokens that we don't want the AI to ever write
             self.badwords = jnp.array([6880, 50256, 42496, 4613, 17414, 22039, 16410, 27, 29, 38430, 37922, 15913, 24618, 28725, 58, 47175, 36937, 26700, 12878, 16471, 37981, 5218, 29795, 13412, 45160, 3693, 49778, 4211, 20598, 36475, 33409, 44167, 32406, 29847, 29342, 42669, 685, 25787, 7359, 3784, 5320, 33994, 33490, 34516, 43734, 17635, 24293, 9959, 23785, 21737, 28401, 18161, 26358, 32509, 1279, 38155, 18189, 26894, 6927, 14610, 23834, 11037, 14631, 26933, 46904, 22330, 25915, 47934, 38214, 1875, 14692, 41832, 13163, 25970, 29565, 44926, 19841, 37250, 49029, 9609, 44438, 16791, 17816, 30109, 41888, 47527, 42924, 23984, 49074, 33717, 31161, 49082, 30138, 31175, 12240, 14804, 7131, 26076, 33250, 3556, 38381, 36338, 32756, 46581, 17912, 49146])
-            def generate_sample(context, ctx_length, aux):
-                # Give the initial context to the transformer
+            def generate_inner(init, carry, context, ctx_length):
                 transformer = CausalTransformerShard(config)
-                _, initial_state = transformer.generate_initial(context, ctx_length, soft_embeddings=soft_embeddings)
-                # The "generated" array will contain the tokens from the
-                # context as well as the tokens picked by the sampler at
-                # each stage, padded with a bunch of 50256s, so we know
-                # which tokens have to be repetition penalized
-                generated = jnp.pad(context, (0, gen_length), constant_values=pad_token_id)  # Let it start off with just the 2048 context tokens, plus gen_length 50256s which will be eventually filled with sampler-chosen tokens
-                generated_index = config["seq"]
-                # Add that information to generate_scan_fn's starting state
-                initial_state = (generated, generated_index) + initial_state
                 # Get repetition penalty from the arguments
                 repetition_penalty = sampler_options.pop('repetition_penalty', None)
-                def generate_scan_fn(carry, sampler_input):
-                    # Unpack current generate_scan_fn state
+                def generate_initial(carry):
+                    # Give the initial context to the transformer
+                    _, initial_state = transformer.generate_initial(context, ctx_length, soft_embeddings=soft_embeddings)
+                    # The "generated" array will contain the tokens from the
+                    # context as well as the tokens picked by the sampler at
+                    # each stage, padded with a bunch of 50256s, so we know
+                    # which tokens have to be repetition penalized
+                    generated = jnp.pad(context, (0, gen_length), constant_values=pad_token_id)  # Let it start off with just the 2048 context tokens, plus gen_length 50256s which will be eventually filled with sampler-chosen tokens
+                    generated_index = jnp.int32(config["seq"])
+                    # Add that information to generate_scan_fn's starting state
+                    initial_state = (generated, generated_index) + initial_state
+                    return initial_state, (jnp.empty(1, dtype=jnp.uint32), None)
+                def generate_once(carry):
+                    # Unpack current state
                     generated, generated_index, next_token, decode_state, sample_key = carry
                     # Get the pseudo-random number generator key that will
                     # be used by kobold_sample to randomly pick a token
@@ -210,7 +212,7 @@ class PenalizingCausalTransformer(CausalTransformer):
                     next_token, sample_info = kobold_sample(
                         sample_key,
                         logits,
-                        sampler_input,
+                        None,
                         **sampler_options,
                     )
                     # Remember what token was picked so we can repetition
@@ -227,23 +229,45 @@ class PenalizingCausalTransformer(CausalTransformer):
                     # get back the same variables the next time
                     new_carry = (generated, generated_index, next_token, new_state, new_key)
                     return new_carry, output
-                # jax.lax.scan is a function that calls generate_scan_fn
-                # gen_length times, each time passing a state object from
-                # its return value (new_carry) back into one of the
-                # function's arguments (carry), and of course gathering the
-                # token it generates each time into the "outputs" array;
-                # we have to use jax.lax.scan instead of a normal loop
-                # because of JAX's JIT-compilation shenanigans
-                final_state, outputs = jax.lax.scan(
-                    generate_scan_fn,
-                    initial_state,
-                    xs=aux,
-                    length=gen_length,
-                )
-                return final_state, outputs
-            generate_fn = hk.transform(generate_sample).apply
-            return generate_fn(state["params"], key, ctx, ctx_length, aux)
-        self.generate_xmap = jax.experimental.maps.xmap(fun=generate, in_axes=(["shard", ...], ["batch", ...], ["batch", ...], ["batch", ...], ["batch", ...], ["batch", ...], ["shard", ...]), out_axes=["batch", ...], axis_resources={'shard': 'mp', 'batch': 'dp'})
+                return jax.lax.cond(init, generate_initial, generate_once, carry)
+            generate_fn = hk.transform(generate_inner).apply
+            kv_shape = (config["seq"] - 1, config["n_heads"] // config["cores_per_replica"], config["d_model"] // config["n_heads"])
+            return generate_fn(
+                state["params"],
+                key,
+                True,
+                (
+                    jnp.pad(ctx, (0, gen_length), constant_values=pad_token_id),
+                    jnp.int32(0),
+                    jnp.empty(1, dtype=jnp.uint32),
+                    [
+                        {
+                            "k": jnp.empty(kv_shape, dtype=jnp.float32),
+                            "v": jnp.empty(kv_shape, dtype=jnp.float32),
+                            "tokens_decoded": jnp.uint32(0),
+                        }
+                        for _ in range(config["layers"])
+                    ],
+                    jnp.empty(2, dtype=jnp.uint32),
+                ),
+                ctx,
+                ctx_length
+            )
+            #return generate_fn(state["params"], key, ctx, ctx_length, aux)
+        self.generate_step_xmap = jax.experimental.maps.xmap(
+            fun=generate_step,
+            in_axes=(
+                ["shard", ...],
+                ["batch", ...],
+                ["batch", ...],
+                ["batch", ...],
+                ["batch", ...],
+                ["batch", ...],
+                ["shard", ...],
+            ),
+            out_axes=["batch", ...],
+            axis_resources={'shard': 'mp', 'batch': 'dp'}
+        )
     def generate(self, ctx, ctx_length, gen_length, sampler_options, return_logits=False, soft_embeddings=None):
         key = hk.PRNGSequence(random.randint(0, 2 ** 60))
         batch_size = ctx.shape[0]
@@ -251,7 +275,7 @@ class PenalizingCausalTransformer(CausalTransformer):
         self.gen_length = gen_length
         self.batch_size = batch_size
         self.return_logits = return_logits
-        return self.generate_xmap(
+        return self.generate_step_xmap(
             self.state,
             jnp.array(key.take(batch_size)),
             ctx,
