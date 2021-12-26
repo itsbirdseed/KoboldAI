@@ -1,4 +1,4 @@
--- Phrase bias
+-- (Preset) Phrase bias
 -- Makes certain sequences of tokens more or less likely to appear than normal.
 -- Run this script once, then see the .conf file in the same directory as this
 -- script for more information.
