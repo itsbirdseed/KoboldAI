@@ -147,7 +147,7 @@ def kobold_sample(key, logits, top_p=0.9, temp=0.5, top_k=0, tfs=1.0):
     # Finally, pick one token using the softmax thingy again (it gives
     # an array whose elements sum to 1 so it can be used nicely as a
     # probability distribution)
-    return jax.random.categorical(key, logits, -1).astype(jnp.uint32)[jnp.newaxis]
+    return jax.random.categorical(key, logits, -1).astype(jnp.uint32)[jnp.newaxis], None
 
 pad_token_id = 50256
 
@@ -155,88 +155,27 @@ class PenalizingCausalTransformer(CausalTransformer):
     def __init__(self, config):
         # Initialize
         super().__init__(config)
-        def generate(state, key, ctx, ctx_length, gen_length, numseqs_aux, sampler_options, soft_embeddings=None):
-            numseqs = numseqs_aux.shape[0]
-            # These are the tokens that we don't want the AI to ever write
-            self.badwords = jnp.array([6880, 50256, 42496, 4613, 17414, 22039, 16410, 27, 29, 38430, 37922, 15913, 24618, 28725, 58, 47175, 36937, 26700, 12878, 16471, 37981, 5218, 29795, 13412, 45160, 3693, 49778, 4211, 20598, 36475, 33409, 44167, 32406, 29847, 29342, 42669, 685, 25787, 7359, 3784, 5320, 33994, 33490, 34516, 43734, 17635, 24293, 9959, 23785, 21737, 28401, 18161, 26358, 32509, 1279, 38155, 18189, 26894, 6927, 14610, 23834, 11037, 14631, 26933, 46904, 22330, 25915, 47934, 38214, 1875, 14692, 41832, 13163, 25970, 29565, 44926, 19841, 37250, 49029, 9609, 44438, 16791, 17816, 30109, 41888, 47527, 42924, 23984, 49074, 33717, 31161, 49082, 30138, 31175, 12240, 14804, 7131, 26076, 33250, 3556, 38381, 36338, 32756, 46581, 17912, 49146])
-            def generate_sample(context, ctx_length):
+        # These are the tokens that we don't want the AI to ever write
+        self.badwords = jnp.array([6880, 50256, 42496, 4613, 17414, 22039, 16410, 27, 29, 38430, 37922, 15913, 24618, 28725, 58, 47175, 36937, 26700, 12878, 16471, 37981, 5218, 29795, 13412, 45160, 3693, 49778, 4211, 20598, 36475, 33409, 44167, 32406, 29847, 29342, 42669, 685, 25787, 7359, 3784, 5320, 33994, 33490, 34516, 43734, 17635, 24293, 9959, 23785, 21737, 28401, 18161, 26358, 32509, 1279, 38155, 18189, 26894, 6927, 14610, 23834, 11037, 14631, 26933, 46904, 22330, 25915, 47934, 38214, 1875, 14692, 41832, 13163, 25970, 29565, 44926, 19841, 37250, 49029, 9609, 44438, 16791, 17816, 30109, 41888, 47527, 42924, 23984, 49074, 33717, 31161, 49082, 30138, 31175, 12240, 14804, 7131, 26076, 33250, 3556, 38381, 36338, 32756, 46581, 17912, 49146])
+        def generate_initial(state, key, ctx, ctx_length, aux, sampler_options, soft_embeddings=None):
+            gen_length = self.gen_length
+            def generate_initial_inner(context, ctx_length, aux):
                 # Give the initial context to the transformer
                 transformer = CausalTransformerShard(config)
-                def generate_initial_scan_fn(sequence_index, _):
-                    _, initial_state = transformer.generate_initial(context, ctx_length, soft_embeddings=soft_embeddings)
-                    # The "generated" array will contain the tokens from the
-                    # context as well as the tokens picked by the sampler at
-                    # each stage, padded with a bunch of 50256s, so we know
-                    # which tokens have to be repetition penalized
-                    generated = jnp.pad(context, (0, config["seq"]), constant_values=pad_token_id)  # Let it start off with just the 2048 context tokens, plus some 50256s which will be eventually filled with sampler-chosen tokens
-                    generated_index = config["seq"]
-                    # Add that information to generate_loop_fn's starting state
-                    initial_state = (generated, generated_index, sequence_index) + initial_state
-                    return sequence_index+1, initial_state
-                _, initial_states = jax.lax.scan(generate_initial_scan_fn, 0, None, numseqs)
-                sample_key = initial_states[-1][0]
-                initial_states = list(jax.tree_map(lambda x: x[i], initial_states[:-1]) for i in range(numseqs))
-                # Get repetition penalty from the arguments
-                repetition_penalty = sampler_options.pop('repetition_penalty', None)
-                # This is the main generation loop
-                def generate_loop_fn(carry):
-                    # Unpack current generate_loop_fn state
-                    generated, generated_index, sequence_index, next_token, decode_state = carry[0][0]
-                    sample_key = carry[1]
-                    # Get the pseudo-random number generator key that will
-                    # be used by kobold_sample to randomly pick a token
-                    sample_key, new_key = jax.random.split(sample_key)
-                    # Give the context to the model and get the logits it
-                    # spits out
-                    # (a 2D array with 1 row and 50400 columns representing
-                    # how strongly it thinks each of the 50257 tokens in its
-                    # vocabulary should be appended to the context, followed
-                    # by 143 apparently useless columns ???)
-                    logits, new_state = transformer.generate_once(next_token, decode_state, soft_embeddings=soft_embeddings)
-                    # Verify that logits does indeed have that many rows and
-                    # columns (if you get an error here, pray for mercy)
-                    assert logits.shape == (1, config["n_vocab"])
-                    # Flatten it into a 1D array to make it easier to use
-                    logits = logits[0]
-                    # Apply repetition penalty to all tokens that are
-                    # currently inside the "generated" array
-                    if repetition_penalty is not None:
-                        logits = apply_repetition_penalty(
-                            logits,
-                            generated,
-                            repetition_penalty
-                        )
-                    # Remove any tokens in the badwords list by setting
-                    # their logits to negative infinity which effectively
-                    # makes their probabilities of being chosen zero
-                    logits = logits.at[self.badwords].set(-jnp.inf)
-                    # Use the sampler (kobold_sample) to pick one token
-                    # based on the logits array as a 1D array with 1 element
-                    # (higher logit means higher probability of being
-                    # picked, non-linearly)
-                    next_token = kobold_sample(
-                        sample_key,
-                        logits,
-                        **sampler_options,
-                    )
-                    # Remember what token was picked
-                    generated = generated.at[generated_index].set(next_token[0])
-                    generated_index += 1
-                    # Re-pack the current generate_loop_fn's state so we can
-                    # get back the same variables the next time
-                    carry[0][0] = (generated, generated_index, sequence_index, next_token, new_state)
-                    carry[0].append(carry[0].pop(0))
-                    return carry[0], new_key
-                final_state = jax.lax.while_loop(
-                    lambda carry: carry[0][0][1] - config["seq"] < gen_length,
-                    generate_loop_fn,
-                    (initial_states, sample_key),
-                )
-                return final_state
-            generate_fn = hk.transform(generate_sample).apply
-            return generate_fn(state["params"], key, ctx, ctx_length)
-        self.generate_xmap = jax.experimental.maps.xmap(
-            fun=generate,
+                _, initial_state = transformer.generate_initial(context, ctx_length, soft_embeddings=soft_embeddings)
+                # The "generated" array will contain the tokens from the
+                # context as well as the tokens picked by the sampler at
+                # each stage, padded with a bunch of 50256s, so we know
+                # which tokens have to be repetition penalized
+                generated = jnp.pad(context, (0, gen_length), constant_values=pad_token_id)  # Let it start off with just the 2048 context tokens, plus gen_length 50256s which will be eventually filled with sampler-chosen tokens
+                generated_index = config["seq"]
+                # Add that information to generate_scan_fn's starting state
+                initial_state = (generated, generated_index) + initial_state
+                return initial_state
+            generate_fn = hk.transform(generate_initial_inner).apply
+            return generate_fn(state["params"], key, ctx, ctx_length, aux)
+        self.generate_initial_xmap = jax.experimental.maps.xmap(
+            fun=generate_initial,
             in_axes=(
                 ["shard", ...],
                 ["batch", ...],
@@ -244,27 +183,140 @@ class PenalizingCausalTransformer(CausalTransformer):
                 ["batch", ...],
                 ["batch", ...],
                 ["batch", ...],
+                ["shard", ...],
+            ),
+            out_axes=["batch", "shard", ...],
+            axis_resources={'shard': 'mp', 'batch': 'dp'}
+        )
+        def generate_once(state, key, ctx, ctx_length, aux, sampler_options, soft_embeddings=None):
+            kv_shape = (config["seq"] - 1, config["n_heads"] // config["cores_per_replica"], config["d_model"] // config["n_heads"])
+            carry = (
+                jnp.pad(ctx, (0, self.gen_length), constant_values=pad_token_id),
+                jnp.int32(0),
+                jnp.empty(1, dtype=jnp.uint32),
+                [
+                    {
+                        "k": jnp.empty(kv_shape, dtype=jnp.float32),
+                        "v": jnp.empty(kv_shape, dtype=jnp.float32),
+                        "tokens_decoded": jnp.uint32(0),
+                    }
+                    for _ in range(config["layers"])
+                ],
+                jnp.empty(2, dtype=jnp.uint32),
+            )
+            # Get repetition penalty from the arguments
+            repetition_penalty = sampler_options.pop('repetition_penalty', None)
+            def generate_once_inner(carry):
+                transformer = CausalTransformerShard(config)
+                # Unpack current generate_scan_fn state
+                generated, generated_index, next_token, decode_state, sample_key = carry
+                # Get the pseudo-random number generator key that will
+                # be used by kobold_sample to randomly pick a token
+                sample_key, new_key = jax.random.split(sample_key)
+                # Give the context to the model and get the logits it
+                # spits out
+                # (a 2D array with 1 row and 50400 columns representing
+                # how strongly it thinks each of the 50257 tokens in its
+                # vocabulary should be appended to the context, followed
+                # by 143 apparently useless columns ???)
+                logits, new_state = transformer.generate_once(next_token, decode_state, soft_embeddings=soft_embeddings)
+                # Verify that logits does indeed have that many rows and
+                # columns (if you get an error here, pray for mercy)
+                assert logits.shape == (1, config["n_vocab"])
+                # Flatten it into a 1D array to make it easier to use
+                logits = logits[0]
+                # Apply repetition penalty to all tokens that are
+                # currently inside the "generated" array
+                if repetition_penalty is not None:
+                    logits = apply_repetition_penalty(
+                        logits,
+                        generated,
+                        repetition_penalty
+                    )
+                # Remove any tokens in the badwords list by setting
+                # their logits to negative infinity which effectively
+                # makes their probabilities of being chosen zero
+                logits = logits.at[self.badwords].set(-jnp.inf)
+                # Use the sampler (kobold_sample) to pick one token
+                # based on the logits array as a 1D array with 1 element
+                # (higher logit means higher probability of being
+                # picked, non-linearly)
+                next_token, sample_info = kobold_sample(
+                    sample_key,
+                    logits,
+                    None,
+                    **sampler_options,
+                )
+                # Remember what token was picked so we can repetition
+                # penalize it next time
+                generated = generated.at[generated_index].set(next_token[0])
+                generated_index += 1
+                # self.return_logits isn't used in this program, but
+                # for the sake of compatibility...
+                if self.return_logits:
+                    output = (next_token, sample_info, logits[jnp.newaxis])
+                else:
+                    output = (next_token, sample_info)
+                # Re-pack the current generate_scan_fn's state so we can
+                # get back the same variables the next time
+                new_carry = (generated, generated_index, next_token, new_state, new_key)
+                return new_carry
+            generate_fn = hk.transform(generate_once_inner).apply
+            outputs = []
+            for i in range(4):
+                carry = generate_fn(state["params"], key, carry)
+                outputs.append(carry[2])
+            return None, outputs
+        self.generate_once_xmap = jax.experimental.maps.xmap(
+            fun=generate_once,
+            in_axes=(
+                # ["batch", "shard", ...],
+                ["shard", ...],
+                ["batch", ...],
+                ["batch", ...],
+                ["batch", ...],
+                ["batch", ...],
                 ["batch", ...],
                 ["shard", ...],
             ),
-            out_axes=["shard", "batch", ...],
+            out_axes=(
+                ["batch", "shard", ...],
+                ["batch", ...],
+            ),
             axis_resources={'shard': 'mp', 'batch': 'dp'},
         )
-    def generate(self, ctx, ctx_length, gen_length, numseqs, sampler_options, return_logits=False, soft_embeddings=None):
-        assert not return_logits
+    def generate(self, ctx, ctx_length, gen_length, sampler_options, return_logits=False, soft_embeddings=None):
         key = hk.PRNGSequence(random.randint(0, 2 ** 60))
         batch_size = ctx.shape[0]
+        aux = jnp.zeros((batch_size, gen_length), dtype=jnp.uint32)
+        self.gen_length = gen_length
         self.batch_size = batch_size
-        return self.generate_xmap(
+        self.return_logits = return_logits
+        print(-1)
+        carry = self.generate_initial_xmap(
             self.state,
             jnp.array(key.take(batch_size)),
             ctx,
             np.array(ctx_length, dtype=np.uint32),
-            np.array(gen_length, dtype=np.uint32),
-            np.empty((batch_size, numseqs), dtype=np.uint8),
+            aux,
             sampler_options,
             soft_embeddings,
         )
+        outputs = []
+        for _ in range(gen_length):
+            print(_)
+            _, output = self.generate_once_xmap(
+                # carry,
+                self.state,
+                jnp.array(key.take(batch_size)),
+                ctx,
+                np.array(ctx_length, dtype=np.uint32),
+                aux,
+                sampler_options,
+                soft_embeddings,
+            )
+            outputs.append(output[0])
+        return np.concatenate(outputs, axis=-1)
 
 
 def infer(
@@ -280,7 +332,7 @@ def infer(
     soft_tokens: Optional[np.array] = None,
 ) -> List[str]:
     maps.thread_resources.env = thread_resources_env
-    total_batch = 1
+    total_batch = numseqs
     tokens = context
     if(soft_tokens is not None):
         tokens = np.uint32(np.concatenate((soft_tokens, tokens)))
@@ -288,6 +340,7 @@ def infer(
     pad_amount = seq - provided_ctx
     padded_tokens = np.pad(tokens, ((pad_amount, 0),), constant_values=pad_token_id)
     batched_tokens = np.array([padded_tokens] * total_batch)
+    length = np.ones(total_batch, dtype=np.uint32) * provided_ctx
     samples = []
     batched_generator_params = {
         "temp": temp * np.ones(total_batch),
@@ -298,14 +351,16 @@ def infer(
     }
     output = network.generate(
         batched_tokens,
-        np.ones(total_batch, dtype=np.uint32) * provided_ctx,
-        np.ones(total_batch, dtype=np.uint32) * gen_len,
-        numseqs,
+        length,
+        gen_len,
         batched_generator_params,
         soft_embeddings=soft_embeddings,
-    )[0]
-    for o in output:
-        samples.append(o[0][0, 0, params["seq"] : params["seq"] + gen_len])
+    )
+    print(output)
+    print(output.shape)
+    decoded_tokens = output[1][0]
+    for o in decoded_tokens[:, :, 0]:
+        samples.append(o)
     return samples
 
 
@@ -330,10 +385,6 @@ def load_model(path: str, driver_version="tpu_driver0.1_dev20210607", **kwargs) 
         if param not in params:
             params[param] = default_params[param]
 
-    # Disable JAX warnings about these two functions having been renamed
-    jax.host_count = jax.process_count
-    jax.host_id = jax.process_index
-
     print("Connecting to your Colab instance's TPU", flush=True)
     spinner = multiprocessing.Process(target=show_spinner, args=())
     spinner.start()
@@ -350,7 +401,7 @@ def load_model(path: str, driver_version="tpu_driver0.1_dev20210607", **kwargs) 
     params["optimizer"] = optax.scale(0)
     mesh_shape = (1, cores_per_replica)
     devices = np.array(jax.devices()[:cores_per_replica]).reshape(mesh_shape)
-    thread_resources_env = maps.ResourceEnv(maps.Mesh(devices, ('dp', 'mp')), ())
+    thread_resources_env = maps.ResourceEnv(maps.Mesh(devices, ('dp', 'mp')))
     maps.thread_resources.env = thread_resources_env
     tokenizer = transformers.GPT2TokenizerFast.from_pretrained('gpt2')
 
@@ -358,5 +409,5 @@ def load_model(path: str, driver_version="tpu_driver0.1_dev20210607", **kwargs) 
         path += "/"
 
     network = PenalizingCausalTransformer(params)
-    network.state = read_ckpt_lowmem(network.state, path, devices.shape[1])
+    # network.state = read_ckpt_lowmem(network.state, path, devices.shape[1])
     network.state = network.move_xmap(network.state, np.zeros(cores_per_replica))
