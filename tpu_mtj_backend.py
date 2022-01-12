@@ -352,7 +352,7 @@ def kobold_sample(key, logits, top_p=0.9, temp=0.5, top_k=0, tfs=1.0):
 pad_token_id = 50256
 
 
-def self_embed(config, x, embed_param, dtype=jnp.bfloat16, pe_length=0, soft_embeddings=None, positional_embeddings=None):
+def self_embed(config, x, embed_w, embed_b, dtype=jnp.bfloat16, pe_length=0, soft_embeddings=None, positional_embeddings=None):
     in_dim = config["n_vocab"] + config.get("n_vocab_padding", 0)
     out_dim = config["d_model"]
     shards = config["cores_per_replica"]
@@ -362,7 +362,7 @@ def self_embed(config, x, embed_param, dtype=jnp.bfloat16, pe_length=0, soft_emb
     shard_start_index = jax.lax.axis_index('shard') * in_dim_per_shard
 
     input_onehot = jax.nn.one_hot(x - shard_start_index, in_dim_per_shard)
-    proj_out = input_onehot @ embed_param  # proj_out = self.proj(input_onehot)
+    proj_out = input_onehot @ embed_w + embed_b  # proj_out = self.proj(input_onehot)
 
     mask = jnp.broadcast_to((x < in_dim)[:, jnp.newaxis], proj_out.shape)
     proj_out = jnp.where(mask, proj_out, 0)
@@ -390,7 +390,7 @@ def self_embed(config, x, embed_param, dtype=jnp.bfloat16, pe_length=0, soft_emb
     return proj_out
 
 
-def self_attn(config, q, v, k, attn_bias, o_param):
+def self_attn(config, q, v, k, attn_bias, o_w, o_b):
     heads = config["n_heads"]
     dim = config["d_model"]
     shards = config["cores_per_replica"]
@@ -425,18 +425,18 @@ def self_attn(config, q, v, k, attn_bias, o_param):
     attention_weights = jax.nn.softmax(attention_logits)
     attention_vec = jnp.einsum("htT,Thd->thd", attention_weights, v).reshape((-1, dim_per_shard))
 
-    return attention_vec @ o_param  # return self.o(attention_vec)
+    return attention_vec @ o_w + o_b  # return self.o(attention_vec)
 
 
-def self_norm(inputs, norm_scale_param, norm_offset_param):
+def self_norm(inputs, norm_scale, norm_offset):
     mean = jnp.mean(inputs, axis=-1, keepdims=True)
     variance = jnp.var(inputs, axis=-1, keepdims=True)
 
     param_shape = inputs.shape[-1:]
-    scale = norm_scale_param  # scale = hk.get_parameter("scale", param_shape, inputs.dtype, init=jnp.ones)
+    scale = norm_scale  # scale = hk.get_parameter("scale", param_shape, inputs.dtype, init=jnp.ones)
     scale = jax.lax.all_gather(scale, "shard")[0]
 
-    offset = norm_offset_param  # offset = hk.get_parameter("offset", param_shape, inputs.dtype, init=jnp.zeros)
+    offset = norm_offset  # offset = hk.get_parameter("offset", param_shape, inputs.dtype, init=jnp.zeros)
     offset = jax.lax.all_gather(offset, "shard")[0]
 
     scale = jnp.broadcast_to(scale, inputs.shape)
@@ -450,19 +450,19 @@ def self_norm(inputs, norm_scale_param, norm_offset_param):
         return inv * (inputs - mean)
 
 
-def l_ff(x, dense_proj_param, dense_proj_o_param):
-    dense_proj = x @ dense_proj_param  # dense_proj = self.dense_proj(x)
+def l_ff(x, dense_proj_w, dense_proj_b, dense_proj_o_w, dense_proj_o_b):
+    dense_proj = x @ dense_proj_w + dense_proj_b  # dense_proj = self.dense_proj(x)
     dense_proj = jax.nn.gelu(dense_proj)
-    return dense_proj @ dense_proj_o_param  # return self.dense_proj_o(dense_proj)
+    return dense_proj @ dense_proj_o_w + dense_proj_o_b  # return self.dense_proj_o(dense_proj)
 
 
-def l_neo_ff(x, dense_proj_param, dense_proj_o_param, norm_scale_param, norm_offset_param):
-    x = self_norm(x, norm_scale_param, norm_offset_param)  # x = self.norm_2(x)
-    dense_out = l_ff(x, dense_proj_param, dense_proj_o_param)
+def l_neo_ff(x, dense_proj_w, dense_proj_b, dense_proj_o_w, dense_proj_o_b, norm_scale, norm_offset):
+    x = self_norm(x, norm_scale, norm_offset)  # x = self.norm_2(x)
+    dense_out = l_ff(x, dense_proj_w, dense_proj_b, dense_proj_o_w, dense_proj_o_b)
     return g_psum(dense_out)
 
 
-def l_decode_once(config, attention_type, decode_state, x, attn_bias, q_param, k_param, v_param, o_param, norm_scale_param, norm_offset_param):
+def l_decode_once(config, attention_type, decode_state, x, attn_bias, q_w, k_w, v_w, o_w, o_b, norm_scale, norm_offset):
     heads = config["n_heads"]
     dim = config["d_model"]
     shards = config["cores_per_replica"]
@@ -472,13 +472,13 @@ def l_decode_once(config, attention_type, decode_state, x, attn_bias, q_param, k
     compat = config.get("compat", "j")
 
     x = f_psum(x)
-    x = self_norm(x, norm_scale_param, norm_offset_param)  # x = self.norm(x)
+    x = self_norm(x, norm_scale, norm_offset)  # x = self.norm(x)
 
     assert x.shape[0] == 1
 
-    q = (x@q_param).reshape(x.shape[:-1] + (heads_per_shard, dim_per_head))
-    v = (x@v_param).reshape(x.shape[:-1] + (heads_per_shard, dim_per_head))
-    k = (x@k_param).reshape(x.shape[:-1] + (heads_per_shard, dim_per_head))
+    q = (x@q_w).reshape(x.shape[:-1] + (heads_per_shard, dim_per_head))  # q = self.q(x).reshape(x.shape[:-1] + (self.heads_per_shard, self.dim_per_head))
+    v = (x@v_w).reshape(x.shape[:-1] + (heads_per_shard, dim_per_head))  # v = self.v(x).reshape(x.shape[:-1] + (self.heads_per_shard, self.dim_per_head))
+    k = (x@k_w).reshape(x.shape[:-1] + (heads_per_shard, dim_per_head))  # k = self.k(x).reshape(x.shape[:-1] + (self.heads_per_shard, self.dim_per_head))
 
     # add new kv to end
     v = jnp.concatenate((decode_state["v"], v), axis=0)[1:]
@@ -496,7 +496,7 @@ def l_decode_once(config, attention_type, decode_state, x, attn_bias, q_param, k
     bias = (-1e10 * attention_mask)
     bias += attn_bias
 
-    attn_out = self_attn(q, v, k, bias, o_param)
+    attn_out = self_attn(q, v, k, bias, o_w, o_b)
     if compat == "neo":
         out = attn_out
     else:
@@ -510,12 +510,12 @@ def l_decode_once(config, attention_type, decode_state, x, attn_bias, q_param, k
     }
 
 
-def self_proj(config, x, proj_param, norm_scale_param, norm_offset_param):
+def self_proj(config, x, proj_w, proj_b, norm_scale, norm_offset):
     out_dim_unpadded = config["n_vocab"]
     compat = config.get("compat", "j")
 
-    x = self_norm(x, norm_scale_param, norm_offset_param)  # x = self.norm(x)
-    proj = x @ (proj_param.T if compat == "neo" else proj_param)  # proj = self.proj(x, transpose_weights=self.compat == "neo")
+    x = self_norm(x, norm_scale, norm_offset)  # x = self.norm(x)
+    proj = x @ (proj_w.T if compat == "neo" else proj_w) + proj_b  # proj = self.proj(x, transpose_weights=self.compat == "neo")
 
     all_proj = jax.lax.all_gather(proj, 'shard')
 
