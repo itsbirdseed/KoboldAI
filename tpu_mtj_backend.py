@@ -216,6 +216,10 @@ from mesh_transformer.transformer_shard import CausalTransformer, CausalTransfor
 from mesh_transformer.layers import fixed_pos_embedding, apply_rotary_pos_emb
 from mesh_transformer.util import g_psum, f_psum
 
+# Force haiku to generate model parameters as a Python dict instead of a haiku FlatMap
+# (TODO: don't do this; FlatMap is more efficient than dict)
+os.environ["HAIKU_FLATMAPPING"] = "0"
+
 
 params: Dict[str, Any] = {}
 
@@ -352,7 +356,7 @@ def kobold_sample(key, logits, top_p=0.9, temp=0.5, top_k=0, tfs=1.0):
 pad_token_id = 50256
 
 
-def self_embed(config, x, embed_w, embed_b, dtype=jnp.bfloat16, pe_length=0, soft_embeddings=None, positional_embeddings=None):
+def self_embed(config, x, embed_param, dtype=jnp.bfloat16, pe_length=0, soft_embeddings=None, positional_embeddings=None):
     in_dim = config["n_vocab"] + config.get("n_vocab_padding", 0)
     out_dim = config["d_model"]
     shards = config["cores_per_replica"]
@@ -362,7 +366,7 @@ def self_embed(config, x, embed_w, embed_b, dtype=jnp.bfloat16, pe_length=0, sof
     shard_start_index = jax.lax.axis_index('shard') * in_dim_per_shard
 
     input_onehot = jax.nn.one_hot(x - shard_start_index, in_dim_per_shard)
-    proj_out = input_onehot @ embed_w + embed_b  # proj_out = self.proj(input_onehot)
+    proj_out = input_onehot @ embed_param["w"] + embed_param["b"]  # proj_out = self.proj(input_onehot)
 
     mask = jnp.broadcast_to((x < in_dim)[:, jnp.newaxis], proj_out.shape)
     proj_out = jnp.where(mask, proj_out, 0)
@@ -390,7 +394,7 @@ def self_embed(config, x, embed_w, embed_b, dtype=jnp.bfloat16, pe_length=0, sof
     return proj_out
 
 
-def self_attn(config, q, v, k, attn_bias, o_w, o_b):
+def self_attn(config, q, v, k, attn_bias, o_param):
     heads = config["n_heads"]
     dim = config["d_model"]
     shards = config["cores_per_replica"]
@@ -425,18 +429,18 @@ def self_attn(config, q, v, k, attn_bias, o_w, o_b):
     attention_weights = jax.nn.softmax(attention_logits)
     attention_vec = jnp.einsum("htT,Thd->thd", attention_weights, v).reshape((-1, dim_per_shard))
 
-    return attention_vec @ o_w + o_b  # return self.o(attention_vec)
+    return attention_vec @ o_param["w"] + (o_param["b"] if compat == "neo" else 0)  # return self.o(attention_vec)
 
 
-def self_norm(inputs, norm_scale, norm_offset):
+def self_norm(config, inputs, norm_param):
     mean = jnp.mean(inputs, axis=-1, keepdims=True)
     variance = jnp.var(inputs, axis=-1, keepdims=True)
 
     param_shape = inputs.shape[-1:]
-    scale = norm_scale  # scale = hk.get_parameter("scale", param_shape, inputs.dtype, init=jnp.ones)
+    scale = norm_param["scale"]  # scale = hk.get_parameter("scale", param_shape, inputs.dtype, init=jnp.ones)
     scale = jax.lax.all_gather(scale, "shard")[0]
 
-    offset = norm_offset  # offset = hk.get_parameter("offset", param_shape, inputs.dtype, init=jnp.zeros)
+    offset = norm_param["offset"]  # offset = hk.get_parameter("offset", param_shape, inputs.dtype, init=jnp.zeros)
     offset = jax.lax.all_gather(offset, "shard")[0]
 
     scale = jnp.broadcast_to(scale, inputs.shape)
@@ -450,19 +454,19 @@ def self_norm(inputs, norm_scale, norm_offset):
         return inv * (inputs - mean)
 
 
-def l_ff(x, dense_proj_w, dense_proj_b, dense_proj_o_w, dense_proj_o_b):
-    dense_proj = x @ dense_proj_w + dense_proj_b  # dense_proj = self.dense_proj(x)
+def l_ff(config, x, dense_proj_param, dense_proj_o_param):
+    dense_proj = x @ dense_proj_param["w"] + dense_proj_param["b"]  # dense_proj = self.dense_proj(x)
     dense_proj = jax.nn.gelu(dense_proj)
-    return dense_proj @ dense_proj_o_w + dense_proj_o_b  # return self.dense_proj_o(dense_proj)
+    return dense_proj @ dense_proj_o_param["w"] + dense_proj_o_param["b"]  # return self.dense_proj_o(dense_proj)
 
 
-def l_neo_ff(x, dense_proj_w, dense_proj_b, dense_proj_o_w, dense_proj_o_b, norm_scale, norm_offset):
-    x = self_norm(x, norm_scale, norm_offset)  # x = self.norm_2(x)
-    dense_out = l_ff(x, dense_proj_w, dense_proj_b, dense_proj_o_w, dense_proj_o_b)
+def l_neo_ff(config, x, dense_proj_param, dense_proj_o_param, norm_scale, norm_offset):
+    x = self_norm(config, x, norm_scale, norm_offset)  # x = self.norm_2(x)
+    dense_out = l_ff(config, x, dense_proj_param, dense_proj_o_param)
     return g_psum(dense_out)
 
 
-def l_decode_once(config, attention_type, decode_state, x, attn_bias, q_w, k_w, v_w, o_w, o_b, norm_scale, norm_offset):
+def l_decode_once(config, attention_type, decode_state, x, attn_bias, q_param, k_param, v_param, o_param, norm_param, dense_proj_param, dense_proj_o_param):
     heads = config["n_heads"]
     dim = config["d_model"]
     shards = config["cores_per_replica"]
@@ -472,13 +476,13 @@ def l_decode_once(config, attention_type, decode_state, x, attn_bias, q_w, k_w, 
     compat = config.get("compat", "j")
 
     x = f_psum(x)
-    x = self_norm(x, norm_scale, norm_offset)  # x = self.norm(x)
+    x = self_norm(config, x, norm_param)  # x = self.norm(x)
 
     assert x.shape[0] == 1
 
-    q = (x@q_w).reshape(x.shape[:-1] + (heads_per_shard, dim_per_head))  # q = self.q(x).reshape(x.shape[:-1] + (self.heads_per_shard, self.dim_per_head))
-    v = (x@v_w).reshape(x.shape[:-1] + (heads_per_shard, dim_per_head))  # v = self.v(x).reshape(x.shape[:-1] + (self.heads_per_shard, self.dim_per_head))
-    k = (x@k_w).reshape(x.shape[:-1] + (heads_per_shard, dim_per_head))  # k = self.k(x).reshape(x.shape[:-1] + (self.heads_per_shard, self.dim_per_head))
+    q = (x @ q_param["w"]).reshape(x.shape[:-1] + (heads_per_shard, dim_per_head))  # q = self.q(x).reshape(x.shape[:-1] + (self.heads_per_shard, self.dim_per_head))
+    v = (x @ v_param["w"]).reshape(x.shape[:-1] + (heads_per_shard, dim_per_head))  # v = self.v(x).reshape(x.shape[:-1] + (self.heads_per_shard, self.dim_per_head))
+    k = (x @ k_param["w"]).reshape(x.shape[:-1] + (heads_per_shard, dim_per_head))  # k = self.k(x).reshape(x.shape[:-1] + (self.heads_per_shard, self.dim_per_head))
 
     # add new kv to end
     v = jnp.concatenate((decode_state["v"], v), axis=0)[1:]
@@ -496,11 +500,11 @@ def l_decode_once(config, attention_type, decode_state, x, attn_bias, q_w, k_w, 
     bias = (-1e10 * attention_mask)
     bias += attn_bias
 
-    attn_out = self_attn(q, v, k, bias, o_w, o_b)
+    attn_out = self_attn(config, q, v, k, bias, o_param)
     if compat == "neo":
         out = attn_out
     else:
-        dense_out = l_ff(x)
+        dense_out = l_ff(config, x, dense_proj_param, dense_proj_o_param)
         out = attn_out + dense_out
 
     return g_psum(out), {
@@ -510,12 +514,12 @@ def l_decode_once(config, attention_type, decode_state, x, attn_bias, q_w, k_w, 
     }
 
 
-def self_proj(config, x, proj_w, proj_b, norm_scale, norm_offset):
+def self_proj(config, x, proj_param, norm_param):
     out_dim_unpadded = config["n_vocab"]
     compat = config.get("compat", "j")
 
-    x = self_norm(x, norm_scale, norm_offset)  # x = self.norm(x)
-    proj = x @ (proj_w.T if compat == "neo" else proj_w) + proj_b  # proj = self.proj(x, transpose_weights=self.compat == "neo")
+    x = self_norm(config, x, norm_param)  # x = self.norm(x)
+    proj = x @ (proj_param["w"].T if compat == "neo" else proj_param["w"]) + proj_param["b"]  # proj = self.proj(x, transpose_weights=self.compat == "neo")
 
     all_proj = jax.lax.all_gather(proj, 'shard')
 
@@ -524,7 +528,27 @@ def self_proj(config, x, proj_w, proj_b, norm_scale, norm_offset):
     return proj_out.reshape((proj_out.shape[0], -1))[:, :out_dim_unpadded]
 
 
-def generate_once(config, params, new_tok, state, soft_embeddings=None):
+def _generate_once(config, params, new_tok, state, soft_embeddings=None):
+    compat = config.get("compat", "j")
+
+    assert compat in ("j", "neo")
+
+    pe = params["causal_transformer_shard/~/embedding_shard"]["pos_embs"] if config["pe"] == "fixed" else None
+
+    embed_param = params["causal_transformer_shard/~/embedding_shard/~/linear"]
+    q_param_n = lambda l: params[f"causal_transformer_shard/~/layer_{l}/~/linear"]
+    v_param_n = lambda l: params[f"causal_transformer_shard/~/layer_{l}/~/linear_1"]
+    k_param_n = lambda l: params[f"causal_transformer_shard/~/layer_{l}/~/linear_2"]
+    o_param_n = lambda l: params[f"causal_transformer_shard/~/layer_{l}/~/linear_3"]
+    dense_proj_param_n = lambda l: params[f"causal_transformer_shard/~/layer_{l}/~/linear_4"]
+    dense_proj_o_param_n = lambda l: params[f"causal_transformer_shard/~/layer_{l}/~/linear_5"]
+    norm1_param_n = lambda l: params[f"causal_transformer_shard/~/layer_{l}/~/replicated_layer_norm"]
+    if compat == "neo": norm2_param_n = lambda l: params[f"causal_transformer_shard/~/layer_{l}/~/replicated_layer_norm_1"]
+    proj_param = params["causal_transformer_shard/~/projection_shard/~/linear"]
+    normf_param = params["causal_transformer_shard/~/projection_shard/~/replicated_layer_norm"]
+
+    attention_layers = config.get("attention_layers", ["global" if compat != "neo" or i % 2 == 0 else "local" for i in range(config["layers"])])
+
     input_len = state[0]["v"].shape[0]
 
     attn_bias = 0
@@ -534,18 +558,18 @@ def generate_once(config, params, new_tok, state, soft_embeddings=None):
     # else:
     #     attn_bias = 0
 
-    x = self_embed(embed_param, new_tok, pe_length=state[0]["tokens_decoded"] + 1, soft_embeddings=soft_embeddings)
+    x = self_embed(config, new_tok, embed_param, new_tok, pe_length=state[0]["tokens_decoded"] + 1, soft_embeddings=soft_embeddings, positional_embeddings=pe)
 
     new_states = []
 
-    for l, s in zip(self_transformer_layers, state):
-        res, layer_state = l_decode_once(s, x, attn_bias)
+    for l, (at, s) in enumerate(zip(attention_layers, state)):
+        res, layer_state = l_decode_once(config, at, s, x, attn_bias, q_param_n(l), k_param_n(l), v_param_n(l), o_param_n(l), norm1_param_n(l), dense_proj_param_n(l), dense_proj_o_param_n(l))
         x = x + res
-        if l.compat == "neo":
-            x = x + l_neo_ff(x)
+        if compat == "neo":
+            x = x + l_neo_ff(config, x, dense_proj_param_n(l), dense_proj_o_param_n(l), norm2_param_n(l))
         new_states.append(layer_state)
 
-    return self_proj(x), new_states
+    return self_proj(config, x, proj_param, normf_param), new_states
 
 
 class PenalizingCausalTransformer(CausalTransformer):
@@ -603,8 +627,7 @@ class PenalizingCausalTransformer(CausalTransformer):
             )
             # Get repetition penalty from the arguments
             repetition_penalty = sampler_options.pop('repetition_penalty', None)
-            def generate_once_inner(carry):
-                transformer = CausalTransformerShard(config)
+            def generate_once_inner(params, key, carry):
                 # Unpack current generate_scan_fn state
                 generated, generated_index, next_token, decode_state, sample_key = carry
                 # Get the pseudo-random number generator key that will
@@ -616,7 +639,7 @@ class PenalizingCausalTransformer(CausalTransformer):
                 # how strongly it thinks each of the 50257 tokens in its
                 # vocabulary should be appended to the context, followed
                 # by 143 apparently useless columns ???)
-                logits, new_state = transformer.generate_once(next_token, decode_state, soft_embeddings=soft_embeddings)
+                logits, new_state = _generate_once(config, params, next_token, decode_state, soft_embeddings=soft_embeddings)
                 # Verify that logits does indeed have that many rows and
                 # columns (if you get an error here, pray for mercy)
                 assert logits.shape == (1, config["n_vocab"])
@@ -641,7 +664,6 @@ class PenalizingCausalTransformer(CausalTransformer):
                 next_token, sample_info = kobold_sample(
                     sample_key,
                     logits,
-                    None,
                     **sampler_options,
                 )
                 # Remember what token was picked so we can repetition
@@ -658,7 +680,7 @@ class PenalizingCausalTransformer(CausalTransformer):
                 # get back the same variables the next time
                 new_carry = (generated, generated_index, next_token, new_state, new_key)
                 return new_carry
-            generate_fn = hk.transform(generate_once_inner).apply
+            generate_fn = generate_once_inner
             outputs = []
             for i in range(4):
                 carry = generate_fn(state["params"], key, carry)
