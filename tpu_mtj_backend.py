@@ -609,94 +609,19 @@ class PenalizingCausalTransformer(CausalTransformer):
             out_axes=["batch", "shard", ...],
             axis_resources={'shard': 'mp', 'batch': 'dp'}
         )
-        def generate_once(state, key, ctx, ctx_length, aux, sampler_options, soft_embeddings=None):
-            kv_shape = (config["seq"] - 1, config["n_heads"] // config["cores_per_replica"], config["d_model"] // config["n_heads"])
-            carry = (
-                jnp.pad(ctx, (0, self.gen_length), constant_values=pad_token_id),
-                jnp.int32(0),
-                jnp.empty(1, dtype=jnp.uint32),
-                [
-                    {
-                        "k": jnp.empty(kv_shape, dtype=jnp.float32),
-                        "v": jnp.empty(kv_shape, dtype=jnp.float32),
-                        "tokens_decoded": jnp.uint32(0),
-                    }
-                    for _ in range(config["layers"])
-                ],
-                jnp.empty(2, dtype=jnp.uint32),
-            )
-            # Get repetition penalty from the arguments
-            repetition_penalty = sampler_options.pop('repetition_penalty', None)
-            def generate_once_inner(params, key, carry):
-                # Unpack current generate_scan_fn state
-                generated, generated_index, next_token, decode_state, sample_key = carry
-                # Get the pseudo-random number generator key that will
-                # be used by kobold_sample to randomly pick a token
-                sample_key, new_key = jax.random.split(sample_key)
-                # Give the context to the model and get the logits it
-                # spits out
-                # (a 2D array with 1 row and 50400 columns representing
-                # how strongly it thinks each of the 50257 tokens in its
-                # vocabulary should be appended to the context, followed
-                # by 143 apparently useless columns ???)
-                logits, new_state = _generate_once(config, params, next_token, decode_state, soft_embeddings=soft_embeddings)
-                # Verify that logits does indeed have that many rows and
-                # columns (if you get an error here, pray for mercy)
-                assert logits.shape == (1, config["n_vocab"])
-                # Flatten it into a 1D array to make it easier to use
-                logits = logits[0]
-                # Apply repetition penalty to all tokens that are
-                # currently inside the "generated" array
-                if repetition_penalty is not None:
-                    logits = apply_repetition_penalty(
-                        logits,
-                        generated,
-                        repetition_penalty
-                    )
-                # Remove any tokens in the badwords list by setting
-                # their logits to negative infinity which effectively
-                # makes their probabilities of being chosen zero
-                logits = logits.at[self.badwords].set(-jnp.inf)
-                # Use the sampler (kobold_sample) to pick one token
-                # based on the logits array as a 1D array with 1 element
-                # (higher logit means higher probability of being
-                # picked, non-linearly)
-                next_token, sample_info = kobold_sample(
-                    sample_key,
-                    logits,
-                    **sampler_options,
-                )
-                # Remember what token was picked so we can repetition
-                # penalize it next time
-                generated = generated.at[generated_index].set(next_token[0])
-                generated_index += 1
-                # self.return_logits isn't used in this program, but
-                # for the sake of compatibility...
-                if self.return_logits:
-                    output = (next_token, sample_info, logits[jnp.newaxis])
-                else:
-                    output = (next_token, sample_info)
-                # Re-pack the current generate_scan_fn's state so we can
-                # get back the same variables the next time
-                new_carry = (generated, generated_index, next_token, new_state, new_key)
-                return new_carry
-            generate_fn = generate_once_inner
-            outputs = []
-            for i in range(4):
-                carry = generate_fn(state["params"], key, carry)
-                outputs.append(carry[2])
-            return None, outputs
+        def generate_once(state, aux):
+            return None, jnp.uint32([1337])
         self.generate_once_xmap = jax.experimental.maps.xmap(
             fun=generate_once,
             in_axes=(
                 # ["batch", "shard", ...],
                 ["shard", ...],
+                # ["batch", ...],
+                # ["batch", ...],
+                # ["batch", ...],
                 ["batch", ...],
-                ["batch", ...],
-                ["batch", ...],
-                ["batch", ...],
-                ["batch", ...],
-                ["shard", ...],
+                # ["batch", ...],
+                # ["shard", ...],
             ),
             out_axes=(
                 ["batch", "shard", ...],
@@ -727,12 +652,12 @@ class PenalizingCausalTransformer(CausalTransformer):
             _, output = self.generate_once_xmap(
                 # carry,
                 self.state,
-                jnp.array(key.take(batch_size)),
-                ctx,
-                np.array(ctx_length, dtype=np.uint32),
+                # jnp.array(key.take(batch_size)),
+                # ctx,
+                # np.array(ctx_length, dtype=np.uint32),
                 aux,
-                sampler_options,
-                soft_embeddings,
+                # sampler_options,
+                # soft_embeddings,
             )
             outputs.append(output[0])
         return np.concatenate(outputs, axis=-1)
