@@ -37,8 +37,10 @@ class Automaton(Generic[KT, VT]):
                 node = new_node
             else:
                 node = node.goto[k]
+        if node is self._root:
+            return False
         node.v = value
-        if node.is_leaf or node is self._root:
+        if node.is_leaf:
             return False
         node.is_leaf = True
         self.__is_automaton = False
@@ -65,7 +67,7 @@ class Automaton(Generic[KT, VT]):
                 if failure is not None:
                     node.failure = failure
                     break
-            node.output = node.failure if node.failure.is_leaf else node.failure.output if node.failure.output is not None else None
+            node.output = node.failure if node.failure.is_leaf else node.failure.output
         self.__is_automaton = True
         return True
 
