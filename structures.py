@@ -24,7 +24,8 @@ class Automaton(Generic[KT, VT]):
             self.v: Optional[VT] = None
 
     def __init__(self):
-        self._root: Automaton.Node[KT, VT] = self.Node(None)
+        self.state: Automaton.Node[KT, VT] = self.Node(None)
+        self._root = self.state
         self.__length = 0
         self.__is_automaton = True
 
@@ -51,6 +52,7 @@ class Automaton(Generic[KT, VT]):
         return self.__is_automaton
 
     def make_automaton(self):
+        self.state = self._root
         if self.__is_automaton:
             return False
         queue: collections.deque[Automaton.Node[KT, VT]] = collections.deque((self._root,))
@@ -80,21 +82,24 @@ class Automaton(Generic[KT, VT]):
 
         The matches are sorted in ascending order of `last_index`, then by
         descending order of the length of the key.
+
+        Running this more than one time preserves the previous automaton state
+        (i.e. allows a match to include characters from previous strings) unless
+        you run `make_automaton()` to clear the automaton state.
         '''
         if not self.__is_automaton:
             raise self.NotAutomatonError(
                 "You need to call this object's `make_automaton()` method once after adding words"
             )
-        node: Optional[Automaton.Node[KT, VT]] = self._root
         for index, char in enumerate(string):
-            g = node.goto.get(char)
-            while node is not self._root:
+            g = self.state.goto.get(char)
+            while self.state is not self._root:
                 if g is not None:
                     break
-                node = node.failure
-                g = node.goto.get(char)
-            node = g if g is not None else self._root
-            ptr = node
+                self.state = self.state.failure
+                g = self.state.goto.get(char)
+            self.state = g if g is not None else self._root
+            ptr = self.state
             while ptr is not None:
                 if ptr.is_leaf:
                     v: VT = ptr.v
