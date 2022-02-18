@@ -947,7 +947,7 @@ if(not vars.model in ["InferKit", "Colab", "OAI", "ReadOnly", "TPUMeshTransforme
                     return int(model.lm_head.in_features)
         
         def maybe_low_cpu_mem_usage() -> Dict[str, Any]:
-            if(packaging.version.parse(transformers_version) < packaging.version.parse("4.11.0")):
+            if(True):
                 print(f"\nWARNING:  Please upgrade to transformers 4.11.0 for lower RAM usage.  You have transformers {transformers_version}.", file=sys.stderr)
                 return {}
             return {"low_cpu_mem_usage": True}
@@ -987,13 +987,13 @@ if(not vars.model in ["InferKit", "Colab", "OAI", "ReadOnly", "TPUMeshTransforme
                 lowmem = {}
 
             # Download model from Huggingface if it does not exist, otherwise load locally
-            
+            import hf_loader
             #If we specify a model and it's in the root directory, we need to move it to the models directory (legacy folder structure to new)
             if os.path.isdir(vars.model.replace('/', '_')):
                 import shutil
                 shutil.move(vars.model.replace('/', '_'), "models/{}".format(vars.model.replace('/', '_')))
             if(os.path.isdir(vars.custmodpth)):
-               with(maybe_use_float16()):
+                with maybe_use_float16(), hf_loader.maybe_transformers_use_hf_loader("gpt_neo", 32, 16, [16]):
                    try:
                        tokenizer = AutoTokenizer.from_pretrained(vars.custmodpth, cache_dir="cache")
                    except ValueError as e:
@@ -1003,7 +1003,7 @@ if(not vars.model in ["InferKit", "Colab", "OAI", "ReadOnly", "TPUMeshTransforme
                    except ValueError as e:
                        model     = GPTNeoForCausalLM.from_pretrained(vars.custmodpth, cache_dir="cache", **lowmem)
             elif(os.path.isdir("models/{}".format(vars.model.replace('/', '_')))):
-                with(maybe_use_float16()):
+                with maybe_use_float16(), hf_loader.maybe_transformers_use_hf_loader("gpt_neo", 32, 16, [16]):
                    try:
                        tokenizer = AutoTokenizer.from_pretrained("models/{}".format(vars.model.replace('/', '_')), cache_dir="cache")
                    except ValueError as e:
@@ -1017,7 +1017,7 @@ if(not vars.model in ["InferKit", "Colab", "OAI", "ReadOnly", "TPUMeshTransforme
                     tokenizer = AutoTokenizer.from_pretrained(vars.model, cache_dir="cache")
                 except ValueError as e:
                     tokenizer = GPT2TokenizerFast.from_pretrained(vars.model, cache_dir="cache")
-                with(maybe_use_float16()):
+                with maybe_use_float16(), hf_loader.maybe_transformers_use_hf_loader("gpt_neo", 32, 16, [16]):
                     try:
                         model     = AutoModelForCausalLM.from_pretrained(vars.model, cache_dir="cache", **lowmem)
                     except ValueError as e:
