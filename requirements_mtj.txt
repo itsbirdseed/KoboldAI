@@ -7,7 +7,7 @@ ray[default]
 jax == 0.2.21
 transformers
 progressbar2
-git+https://github.com/VE-FORBRYDERNE/mesh-transformer-jax@ck
+git+https://github.com/VE-FORBRYDERNE/mesh-transformer-jax@ck-13b-test
 flask
 Flask-SocketIO
 flask-cloudflared >= 0.0.5

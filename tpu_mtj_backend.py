@@ -780,16 +780,15 @@ def load_model(path: str, driver_version="tpu_driver0.1_dev20210607", **kwargs) 
     global thread_resources_env, seq, tokenizer, network, params
 
     default_params = {
-        "compat": "j",
-        "layers": 28,
-        "d_model": 4096,
-        "n_heads": 16,
-        "n_vocab": 50400,
+        "compat": "fairseq_lm",
+        "n_vocab": 51200,
         "n_vocab_padding": 0,
         "norm": "layernorm",
-        "pe": "rotary",
-        "pe_rotary_dims": 64,
+        "pe": "fairseq_sinusoidal",
         "seq": 2048,
+        "layers": 40,
+        "d_model": 5120,
+        "n_heads": 40,
         "cores_per_replica": 8,
     }
     params = kwargs
@@ -819,7 +818,7 @@ def load_model(path: str, driver_version="tpu_driver0.1_dev20210607", **kwargs) 
     devices = np.array(jax.devices()[:cores_per_replica]).reshape(mesh_shape)
     thread_resources_env = maps.ResourceEnv(maps.Mesh(devices, ('dp', 'mp')), ())
     maps.thread_resources.env = thread_resources_env
-    tokenizer = transformers.GPT2TokenizerFast.from_pretrained('gpt2')
+    tokenizer = transformers.GPT2TokenizerFast.from_pretrained('KoboldAI/fairseq-dense-125M')
 
     global shard_xmap, batch_xmap
     shard_xmap = __shard_xmap()
@@ -831,7 +830,1302 @@ def load_model(path: str, driver_version="tpu_driver0.1_dev20210607", **kwargs) 
 
     if not path.endswith("/"):
         path += "/"
+    
+    from functools import reduce
+    class DummyTensor:
+        def __init__(self, *args):
+            self.shape = args
+            self.size = reduce(lambda x, y: x * y, args, 1)
 
     network = PenalizingCausalTransformer(params)
+    network.state["params"] = {
+      'causal_transformer_shard/~/embedding_shard/~/linear':  ({'w': DummyTensor(8, 6400, 5120)}),
+      'causal_transformer_shard/~/layer_0/~/linear':  ({
+                                                       'b': DummyTensor(8, 640),
+                                                       'w': DummyTensor(8, 5120, 640),
+                                                     }),
+      'causal_transformer_shard/~/layer_0/~/linear_1':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_0/~/linear_2':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_0/~/linear_3':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 640, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_0/~/linear_4':  ({
+                                                         'b': DummyTensor(8, 2560),
+                                                         'w': DummyTensor(8, 5120, 2560),
+                                                       }),
+      'causal_transformer_shard/~/layer_0/~/linear_5':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 2560, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_0/~/replicated_layer_norm':  ({
+                                                                      'offset': DummyTensor(8, 5120),
+                                                                      'scale': DummyTensor(8, 5120),
+                                                                    }),
+      'causal_transformer_shard/~/layer_0/~/replicated_layer_norm_1':  ({
+                                                                        'offset': DummyTensor(8, 5120),
+                                                                        'scale': DummyTensor(8, 5120),
+                                                                      }),
+      'causal_transformer_shard/~/layer_1/~/linear':  ({
+                                                       'b': DummyTensor(8, 640),
+                                                       'w': DummyTensor(8, 5120, 640),
+                                                     }),
+      'causal_transformer_shard/~/layer_1/~/linear_1':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_1/~/linear_2':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_1/~/linear_3':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 640, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_1/~/linear_4':  ({
+                                                         'b': DummyTensor(8, 2560),
+                                                         'w': DummyTensor(8, 5120, 2560),
+                                                       }),
+      'causal_transformer_shard/~/layer_1/~/linear_5':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 2560, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_1/~/replicated_layer_norm':  ({
+                                                                      'offset': DummyTensor(8, 5120),
+                                                                      'scale': DummyTensor(8, 5120),
+                                                                    }),
+      'causal_transformer_shard/~/layer_1/~/replicated_layer_norm_1':  ({
+                                                                        'offset': DummyTensor(8, 5120),
+                                                                        'scale': DummyTensor(8, 5120),
+                                                                      }),
+      'causal_transformer_shard/~/layer_10/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_10/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_10/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_10/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_10/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_10/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_10/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_10/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_11/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_11/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_11/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_11/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_11/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_11/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_11/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_11/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_12/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_12/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_12/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_12/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_12/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_12/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_12/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_12/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_13/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_13/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_13/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_13/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_13/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_13/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_13/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_13/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_14/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_14/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_14/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_14/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_14/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_14/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_14/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_14/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_15/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_15/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_15/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_15/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_15/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_15/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_15/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_15/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_16/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_16/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_16/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_16/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_16/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_16/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_16/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_16/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_17/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_17/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_17/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_17/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_17/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_17/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_17/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_17/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_18/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_18/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_18/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_18/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_18/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_18/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_18/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_18/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_19/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_19/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_19/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_19/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_19/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_19/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_19/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_19/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_2/~/linear':  ({
+                                                       'b': DummyTensor(8, 640),
+                                                       'w': DummyTensor(8, 5120, 640),
+                                                     }),
+      'causal_transformer_shard/~/layer_2/~/linear_1':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_2/~/linear_2':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_2/~/linear_3':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 640, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_2/~/linear_4':  ({
+                                                         'b': DummyTensor(8, 2560),
+                                                         'w': DummyTensor(8, 5120, 2560),
+                                                       }),
+      'causal_transformer_shard/~/layer_2/~/linear_5':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 2560, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_2/~/replicated_layer_norm':  ({
+                                                                      'offset': DummyTensor(8, 5120),
+                                                                      'scale': DummyTensor(8, 5120),
+                                                                    }),
+      'causal_transformer_shard/~/layer_2/~/replicated_layer_norm_1':  ({
+                                                                        'offset': DummyTensor(8, 5120),
+                                                                        'scale': DummyTensor(8, 5120),
+                                                                      }),
+      'causal_transformer_shard/~/layer_20/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_20/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_20/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_20/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_20/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_20/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_20/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_20/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_21/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_21/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_21/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_21/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_21/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_21/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_21/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_21/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_22/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_22/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_22/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_22/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_22/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_22/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_22/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_22/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_23/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_23/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_23/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_23/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_23/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_23/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_23/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_23/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_24/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_24/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_24/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_24/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_24/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_24/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_24/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_24/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_25/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_25/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_25/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_25/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_25/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_25/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_25/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_25/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_26/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_26/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_26/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_26/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_26/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_26/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_26/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_26/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_27/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_27/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_27/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_27/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_27/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_27/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_27/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_27/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_28/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_28/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_28/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_28/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_28/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_28/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_28/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_28/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_29/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_29/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_29/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_29/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_29/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_29/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_29/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_29/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_3/~/linear':  ({
+                                                       'b': DummyTensor(8, 640),
+                                                       'w': DummyTensor(8, 5120, 640),
+                                                     }),
+      'causal_transformer_shard/~/layer_3/~/linear_1':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_3/~/linear_2':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_3/~/linear_3':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 640, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_3/~/linear_4':  ({
+                                                         'b': DummyTensor(8, 2560),
+                                                         'w': DummyTensor(8, 5120, 2560),
+                                                       }),
+      'causal_transformer_shard/~/layer_3/~/linear_5':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 2560, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_3/~/replicated_layer_norm':  ({
+                                                                      'offset': DummyTensor(8, 5120),
+                                                                      'scale': DummyTensor(8, 5120),
+                                                                    }),
+      'causal_transformer_shard/~/layer_3/~/replicated_layer_norm_1':  ({
+                                                                        'offset': DummyTensor(8, 5120),
+                                                                        'scale': DummyTensor(8, 5120),
+                                                                      }),
+      'causal_transformer_shard/~/layer_30/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_30/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_30/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_30/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_30/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_30/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_30/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_30/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_31/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_31/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_31/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_31/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_31/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_31/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_31/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_31/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_32/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_32/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_32/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_32/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_32/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_32/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_32/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_32/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_33/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_33/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_33/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_33/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_33/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_33/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_33/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_33/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_34/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_34/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_34/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_34/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_34/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_34/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_34/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_34/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_35/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_35/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_35/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_35/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_35/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_35/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_35/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_35/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_36/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_36/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_36/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_36/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_36/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_36/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_36/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_36/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_37/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_37/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_37/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_37/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_37/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_37/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_37/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_37/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_38/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_38/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_38/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_38/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_38/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_38/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_38/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_38/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_39/~/linear':  ({
+                                                        'b': DummyTensor(8, 640),
+                                                        'w': DummyTensor(8, 5120, 640),
+                                                      }),
+      'causal_transformer_shard/~/layer_39/~/linear_1':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_39/~/linear_2':  ({
+                                                          'b': DummyTensor(8, 640),
+                                                          'w': DummyTensor(8, 5120, 640),
+                                                        }),
+      'causal_transformer_shard/~/layer_39/~/linear_3':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 640, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_39/~/linear_4':  ({
+                                                          'b': DummyTensor(8, 2560),
+                                                          'w': DummyTensor(8, 5120, 2560),
+                                                        }),
+      'causal_transformer_shard/~/layer_39/~/linear_5':  ({
+                                                          'b': DummyTensor(8, 5120),
+                                                          'w': DummyTensor(8, 2560, 5120),
+                                                        }),
+      'causal_transformer_shard/~/layer_39/~/replicated_layer_norm':  ({
+                                                                       'offset': DummyTensor(8, 5120),
+                                                                       'scale': DummyTensor(8, 5120),
+                                                                     }),
+      'causal_transformer_shard/~/layer_39/~/replicated_layer_norm_1':  ({
+                                                                         'offset': DummyTensor(8, 5120),
+                                                                         'scale': DummyTensor(8, 5120),
+                                                                       }),
+      'causal_transformer_shard/~/layer_4/~/linear':  ({
+                                                       'b': DummyTensor(8, 640),
+                                                       'w': DummyTensor(8, 5120, 640),
+                                                     }),
+      'causal_transformer_shard/~/layer_4/~/linear_1':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_4/~/linear_2':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_4/~/linear_3':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 640, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_4/~/linear_4':  ({
+                                                         'b': DummyTensor(8, 2560),
+                                                         'w': DummyTensor(8, 5120, 2560),
+                                                       }),
+      'causal_transformer_shard/~/layer_4/~/linear_5':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 2560, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_4/~/replicated_layer_norm':  ({
+                                                                      'offset': DummyTensor(8, 5120),
+                                                                      'scale': DummyTensor(8, 5120),
+                                                                    }),
+      'causal_transformer_shard/~/layer_4/~/replicated_layer_norm_1':  ({
+                                                                        'offset': DummyTensor(8, 5120),
+                                                                        'scale': DummyTensor(8, 5120),
+                                                                      }),
+      'causal_transformer_shard/~/layer_5/~/linear':  ({
+                                                       'b': DummyTensor(8, 640),
+                                                       'w': DummyTensor(8, 5120, 640),
+                                                     }),
+      'causal_transformer_shard/~/layer_5/~/linear_1':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_5/~/linear_2':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_5/~/linear_3':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 640, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_5/~/linear_4':  ({
+                                                         'b': DummyTensor(8, 2560),
+                                                         'w': DummyTensor(8, 5120, 2560),
+                                                       }),
+      'causal_transformer_shard/~/layer_5/~/linear_5':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 2560, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_5/~/replicated_layer_norm':  ({
+                                                                      'offset': DummyTensor(8, 5120),
+                                                                      'scale': DummyTensor(8, 5120),
+                                                                    }),
+      'causal_transformer_shard/~/layer_5/~/replicated_layer_norm_1':  ({
+                                                                        'offset': DummyTensor(8, 5120),
+                                                                        'scale': DummyTensor(8, 5120),
+                                                                      }),
+      'causal_transformer_shard/~/layer_6/~/linear':  ({
+                                                       'b': DummyTensor(8, 640),
+                                                       'w': DummyTensor(8, 5120, 640),
+                                                     }),
+      'causal_transformer_shard/~/layer_6/~/linear_1':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_6/~/linear_2':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_6/~/linear_3':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 640, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_6/~/linear_4':  ({
+                                                         'b': DummyTensor(8, 2560),
+                                                         'w': DummyTensor(8, 5120, 2560),
+                                                       }),
+      'causal_transformer_shard/~/layer_6/~/linear_5':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 2560, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_6/~/replicated_layer_norm':  ({
+                                                                      'offset': DummyTensor(8, 5120),
+                                                                      'scale': DummyTensor(8, 5120),
+                                                                    }),
+      'causal_transformer_shard/~/layer_6/~/replicated_layer_norm_1':  ({
+                                                                        'offset': DummyTensor(8, 5120),
+                                                                        'scale': DummyTensor(8, 5120),
+                                                                      }),
+      'causal_transformer_shard/~/layer_7/~/linear':  ({
+                                                       'b': DummyTensor(8, 640),
+                                                       'w': DummyTensor(8, 5120, 640),
+                                                     }),
+      'causal_transformer_shard/~/layer_7/~/linear_1':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_7/~/linear_2':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_7/~/linear_3':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 640, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_7/~/linear_4':  ({
+                                                         'b': DummyTensor(8, 2560),
+                                                         'w': DummyTensor(8, 5120, 2560),
+                                                       }),
+      'causal_transformer_shard/~/layer_7/~/linear_5':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 2560, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_7/~/replicated_layer_norm':  ({
+                                                                      'offset': DummyTensor(8, 5120),
+                                                                      'scale': DummyTensor(8, 5120),
+                                                                    }),
+      'causal_transformer_shard/~/layer_7/~/replicated_layer_norm_1':  ({
+                                                                        'offset': DummyTensor(8, 5120),
+                                                                        'scale': DummyTensor(8, 5120),
+                                                                      }),
+      'causal_transformer_shard/~/layer_8/~/linear':  ({
+                                                       'b': DummyTensor(8, 640),
+                                                       'w': DummyTensor(8, 5120, 640),
+                                                     }),
+      'causal_transformer_shard/~/layer_8/~/linear_1':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_8/~/linear_2':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_8/~/linear_3':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 640, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_8/~/linear_4':  ({
+                                                         'b': DummyTensor(8, 2560),
+                                                         'w': DummyTensor(8, 5120, 2560),
+                                                       }),
+      'causal_transformer_shard/~/layer_8/~/linear_5':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 2560, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_8/~/replicated_layer_norm':  ({
+                                                                      'offset': DummyTensor(8, 5120),
+                                                                      'scale': DummyTensor(8, 5120),
+                                                                    }),
+      'causal_transformer_shard/~/layer_8/~/replicated_layer_norm_1':  ({
+                                                                        'offset': DummyTensor(8, 5120),
+                                                                        'scale': DummyTensor(8, 5120),
+                                                                      }),
+      'causal_transformer_shard/~/layer_9/~/linear':  ({
+                                                       'b': DummyTensor(8, 640),
+                                                       'w': DummyTensor(8, 5120, 640),
+                                                     }),
+      'causal_transformer_shard/~/layer_9/~/linear_1':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_9/~/linear_2':  ({
+                                                         'b': DummyTensor(8, 640),
+                                                         'w': DummyTensor(8, 5120, 640),
+                                                       }),
+      'causal_transformer_shard/~/layer_9/~/linear_3':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 640, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_9/~/linear_4':  ({
+                                                         'b': DummyTensor(8, 2560),
+                                                         'w': DummyTensor(8, 5120, 2560),
+                                                       }),
+      'causal_transformer_shard/~/layer_9/~/linear_5':  ({
+                                                         'b': DummyTensor(8, 5120),
+                                                         'w': DummyTensor(8, 2560, 5120),
+                                                       }),
+      'causal_transformer_shard/~/layer_9/~/replicated_layer_norm':  ({
+                                                                      'offset': DummyTensor(8, 5120),
+                                                                      'scale': DummyTensor(8, 5120),
+                                                                    }),
+      'causal_transformer_shard/~/layer_9/~/replicated_layer_norm_1':  ({
+                                                                        'offset': DummyTensor(8, 5120),
+                                                                        'scale': DummyTensor(8, 5120),
+                                                                      }),
+      'causal_transformer_shard/~/projection_shard/~/linear':  ({'w': DummyTensor(8, 5120, 6400)}),
+      'causal_transformer_shard/~/projection_shard/~/replicated_layer_norm':  ({
+                                                                               'offset': DummyTensor(8, 5120),
+                                                                               'scale': DummyTensor(8, 5120),
+                                                                             }),
+    }
     network.state = read_ckpt_lowmem(network.state, path, devices.shape[1])
     network.state = network.move_xmap(network.state, np.zeros(cores_per_replica))
+    vars.newlinemode = "s"
