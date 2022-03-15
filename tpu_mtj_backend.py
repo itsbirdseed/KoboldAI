@@ -801,6 +801,25 @@ def reshard_reverse(x, total_shards, old_shape):
     return out
 
 
+def reshard(x, old_shape):
+    assert len(x.shape) != 1
+    if len(x.shape) == 2:
+        if x.shape[1] == old_shape[1]:
+            out = x[0:1]
+        else:
+            out = x.reshape(old_shape)
+    elif len(x.shape) == 3:
+        if x.shape[0] * x.shape[2] == old_shape[2]:
+            out = x.permute((1, 0, 2)).reshape(old_shape)
+        elif x.shape[0] * x.shape[1] == old_shape[1]:
+            out = x.reshape(old_shape)
+        else:
+            assert False
+    else:
+        assert False
+    return out
+
+
 def get_old_shape(t, total_shards, dim=2):
     if len(t.shape) == 2:
         shard_shape = t.shape
@@ -817,6 +836,40 @@ def get_old_shape(t, total_shards, dim=2):
         return (t.shape[0] // total_shards,)
     else:
         raise ValueError(f"Unsupported shape {t.shape}")
+
+
+def get_old_shape_merge(t, dim=2):
+    if len(t.shape) == 3:
+        shard_shape = t.shape
+        if dim == 1:
+            return (shard_shape[0] * shard_shape[1], shard_shape[2])
+        elif dim == 2:
+            return (shard_shape[1], shard_shape[0] * shard_shape[2])
+        else:
+            raise ValueError(f"Unsupported dim {dim}")
+    if len(t.shape) == 2:
+        return (t.shape[1] * t.shape[0],)
+    else:
+        raise ValueError(f"Unsupported shape {t.shape}")
+
+
+def neox_reshard(t, in_shards, out_shards, axis, merge_axis, do_transpose):
+    assert (axis is None) == (merge_axis is None)
+    assert out_shards > in_shards
+    assert out_shards % in_shards == 0
+    if axis is None:
+        return t.repeat_interleave(out_shards // in_shards, dim=0)
+
+    old_shape = (1,) + get_old_shape_merge(t, dim=merge_axis)
+    t = reshard(t, old_shape)
+
+    if do_transpose and t.ndim > 2:
+        t.transpose_(1, 2)
+
+    old_shape = (out_shards,) + get_old_shape(t[0], total_shards=out_shards, dim=axis)
+    t = reshard_reverse(t, out_shards, old_shape)
+
+    return t
 
 
 def read_neox_checkpoint(state, path, config, checkpoint_shards=2):
@@ -836,25 +889,25 @@ def read_neox_checkpoint(state, path, config, checkpoint_shards=2):
     path_template = os.path.join(path, "layer_{layer:02d}-model_{shard:02d}-model_states.pt")
 
     static_mapping = {
-        "word_embeddings.weight": {"module": "embedding_shard/~/linear", "param": "w", "axis": 1},
-        "final_linear.weight": {"module": "projection_shard/~/linear", "param": "w", "axis": 2},
-        "norm.weight": {"module": "projection_shard/~/replicated_layer_norm", "param": "scale", "axis": None},
-        "norm.bias": {"module": "projection_shard/~/replicated_layer_norm", "param": "offset", "axis": None},
+        "word_embeddings.weight": {"module": "embedding_shard/~/linear", "param": "w", "axis": 1, "merge_axis": 1},
+        "final_linear.weight": {"module": "projection_shard/~/linear", "param": "w", "axis": 2, "merge_axis": 1},
+        "norm.weight": {"module": "projection_shard/~/replicated_layer_norm", "param": "scale", "axis": None, "merge_axis": None},
+        "norm.bias": {"module": "projection_shard/~/replicated_layer_norm", "param": "offset", "axis": None, "merge_axis": None},
     }
 
     layer_mapping = {
-        "attention.query_key_value.weight": {"module": "combined_qkv", "param": "w", "axis": 2},
-        "attention.query_key_value.bias": {"module": "combined_qkv", "param": "b", "axis": 1},
-        "attention.dense.weight": {"module": "linear_3", "param": "w", "axis": 1},
-        "attention.dense.bias": {"module": "linear_3", "param": "b", "axis": None},
-        "mlp.dense_h_to_4h.weight": {"module": "linear_4", "param": "w", "axis": 2},
-        "mlp.dense_h_to_4h.bias": {"module": "linear_4", "param": "b", "axis": 1},
-        "mlp.dense_4h_to_h.weight": {"module": "linear_5", "param": "w", "axis": 1},
-        "mlp.dense_4h_to_h.bias": {"module": "linear_5", "param": "b", "axis": None},
-        "input_layernorm.weight": {"module": "replicated_layer_norm", "param": "scale", "axis": None},
-        "input_layernorm.bias": {"module": "replicated_layer_norm", "param": "offset", "axis": None},
-        "post_attention_layernorm.weight": {"module": "replicated_layer_norm_1", "param": "scale", "axis": None},
-        "post_attention_layernorm.bias": {"module": "replicated_layer_norm_1", "param": "offset", "axis": None},
+        "attention.query_key_value.weight": {"module": "combined_qkv", "param": "w", "axis": 2, "merge_axis": 1},
+        "attention.query_key_value.bias": {"module": "combined_qkv", "param": "b", "axis": 1, "merge_axis": 2},
+        "attention.dense.weight": {"module": "linear_3", "param": "w", "axis": 1, "merge_axis": 2},
+        "attention.dense.bias": {"module": "linear_3", "param": "b", "axis": None, "merge_axis": None},
+        "mlp.dense_h_to_4h.weight": {"module": "linear_4", "param": "w", "axis": 2, "merge_axis": 1},
+        "mlp.dense_h_to_4h.bias": {"module": "linear_4", "param": "b", "axis": 1, "merge_axis": 2},
+        "mlp.dense_4h_to_h.weight": {"module": "linear_5", "param": "w", "axis": 1, "merge_axis": 2},
+        "mlp.dense_4h_to_h.bias": {"module": "linear_5", "param": "b", "axis": None, "merge_axis": None},
+        "input_layernorm.weight": {"module": "replicated_layer_norm", "param": "scale", "axis": None, "merge_axis": None},
+        "input_layernorm.bias": {"module": "replicated_layer_norm", "param": "offset", "axis": None, "merge_axis": None},
+        "post_attention_layernorm.weight": {"module": "replicated_layer_norm_1", "param": "scale", "axis": None, "merge_axis": None},
+        "post_attention_layernorm.bias": {"module": "replicated_layer_norm_1", "param": "offset", "axis": None, "merge_axis": None},
     }
 
     tqdm_length = len(static_mapping) + config["layers"]*len(layer_mapping)
@@ -874,28 +927,20 @@ def read_neox_checkpoint(state, path, config, checkpoint_shards=2):
                 target_module = "causal_transformer_shard/~/" + static_mapping[key]["module"]
                 target_param = static_mapping[key]["param"]
                 target_axis = static_mapping[key]["axis"]
+                merge_axis = static_mapping[key]["merge_axis"]
             elif key in layer_mapping:
                 target_module = f"causal_transformer_shard/~/layer_{layer}/~/" + layer_mapping[key]["module"]
                 target_param = layer_mapping[key]["param"]
                 target_axis = layer_mapping[key]["axis"]
+                merge_axis = layer_mapping[key]["merge_axis"]
             else:
                 error = f"{repr(key)} not found in mapping"
                 print("\n\nERROR: ", error, file=sys.stderr)
                 raise RuntimeError(error)
-            original_shape = shards[0][key].shape
-            for checkpoint_shard in range(checkpoint_shards):
-                if key in ("attention.dense.bias", "mlp.dense_4h_to_h.bias"):
-                    shards[checkpoint_shard][key] /= output_shards
-                if key != "word_embeddings.weight":
-                    shards[checkpoint_shard][key] = shards[checkpoint_shard][key].T
-                tensor = shards[checkpoint_shard][key]
-                if target_axis is not None:
-                    target_shape = (output_shards,) + get_old_shape(tensor, total_shards=output_shards, dim=target_axis)
-                else:
-                    target_shape = (output_shards, tensor.shape[0])
-                shards[checkpoint_shard][key] = reshard_reverse(tensor.unsqueeze_(0), output_shards, target_shape)
-            #print(key, ":", original_shape, "->", shards[0][key].shape)
-            tensor = torch.cat([shards[s][key] for s in range(checkpoint_shards)], dim=0)
+            tensor = torch.stack([shards[s][key] for s in range(checkpoint_shards)])
+            if key in ("attention.dense.bias", "mlp.dense_4h_to_h.bias"):
+                tensor /= output_shards
+            tensor = neox_reshard(tensor, checkpoint_shards, params["cores_per_replica"], target_axis, merge_axis, key != "word_embeddings.weight")
             target_shape = state["params"][target_module][target_param].shape
             if tensor.shape != target_shape:
                 error = f"Weight {repr(key)} has shape {tensor.shape} in checkpoint but shape {target_shape} was requested by MTJ for {target_module} {target_param}"
