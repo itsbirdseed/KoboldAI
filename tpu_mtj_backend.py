@@ -937,21 +937,40 @@ def read_neox_checkpoint(state, path, config, checkpoint_shards=2):
                 error = f"{repr(key)} not found in mapping"
                 print("\n\nERROR: ", error, file=sys.stderr)
                 raise RuntimeError(error)
-            tensor = torch.stack([shards[s][key] for s in range(checkpoint_shards)])
-            if key in ("attention.dense.bias", "mlp.dense_4h_to_h.bias"):
-                tensor /= output_shards
-            tensor = neox_reshard(tensor, checkpoint_shards, params["cores_per_replica"], target_axis, merge_axis, key != "word_embeddings.weight")
-            target_shape = state["params"][target_module][target_param].shape
-            if tensor.shape != target_shape:
-                error = f"Weight {repr(key)} has shape {tensor.shape} in checkpoint but shape {target_shape} was requested by MTJ for {target_module} {target_param}"
-                print("\n\nERROR: ", error, file=sys.stderr)
-                raise RuntimeError(error)
-            if tensor.dtype is torch.float16 or tensor.dtype is torch.float32:
-                tensor = tensor.bfloat16()
-            state["params"][target_module][target_param] = move_xmap(
-                jax.dlpack.from_dlpack(torch.utils.dlpack.to_dlpack(tensor)).copy(),
-                np.zeros(config["cores_per_replica"]),
-            )
+            if key.startswith("attention.query_key_value"):
+                qkv = torch.cat([shards[s][key] for s in range(checkpoint_shards)], dim=0)
+                c = torch.arange(3).tile(config["n_heads"]).repeat_interleave(config["d_model"] // config["n_heads"])
+                q, k, v = (qkv[c == i] for i in range(3))
+                if q.ndim == 2:
+                    q, k, v = (t.T for t in (q, k, v))
+                q, k, v = (torch.stack(t.split(t.shape[-1] // config["cores_per_replica"], dim=-1)) for t in (q, k, v))
+                for m, t in {"linear": q, "linear_1": v, "linear_2": k}.items():
+                    m = f"causal_transformer_shard/~/layer_{layer}/~/" + m
+                    target_shape = state["params"][m][target_param].shape
+                    if t.shape != target_shape:
+                        raise RuntimeError(f"{repr(m)}, {repr(target_param)}, {t.shape}, {target_shape}")
+                    if t.dtype is torch.float16 or t.dtype is torch.float32:
+                        t = t.bfloat16()
+                    state["params"][m][target_param] = move_xmap(
+                        jax.dlpack.from_dlpack(torch.utils.dlpack.to_dlpack(t)).copy(),
+                        np.zeros(config["cores_per_replica"]),
+                    )
+            else:
+                tensor = torch.stack([shards[s][key] for s in range(checkpoint_shards)])
+                if key in ("attention.dense.bias", "mlp.dense_4h_to_h.bias"):
+                    tensor /= params["cores_per_replica"]
+                tensor = neox_reshard(tensor, checkpoint_shards, params["cores_per_replica"], target_axis, merge_axis, key != "word_embeddings.weight")
+                target_shape = state["params"][target_module][target_param].shape
+                if tensor.shape != target_shape:
+                    error = f"Weight {repr(key)} has shape {tensor.shape} in checkpoint but shape {target_shape} was requested by MTJ for {target_module} {target_param}"
+                    print("\n\nERROR: ", error, file=sys.stderr)
+                    raise RuntimeError(error)
+                if tensor.dtype is torch.float16 or tensor.dtype is torch.float32:
+                    tensor = tensor.bfloat16()
+                state["params"][target_module][target_param] = move_xmap(
+                    jax.dlpack.from_dlpack(torch.utils.dlpack.to_dlpack(tensor)).copy(),
+                    np.zeros(config["cores_per_replica"]),
+                )
             bar.update(1)
     for mk, mv in state["params"].items():
         for pk, pv in mv.items():
@@ -989,8 +1008,9 @@ def load_model(path: str, driver_version="tpu_driver0.1_dev20210607", hf_checkpo
             "n_heads": 64,
             "n_vocab": 50432,
             "n_vocab_padding": 0,
+            "combined_qkv": False,
             "norm": "doublelayernorm",
-            "pe": "rotary",
+            "pe": "neox_rotary",
             "pe_rotary_dims": 24,
             "seq": 2048,
             "cores_per_replica": 8,
